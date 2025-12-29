@@ -1,0 +1,158 @@
+# =============================================================================
+# CT LK FUTEVÔLEI - DOCKER COMPOSE
+# =============================================================================
+# Orquestra todos os serviços necessários para o bot
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # BOT PRINCIPAL
+  # ---------------------------------------------------------------------------
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whatsapp-bot
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - HEALTH_PORT=3000
+      # Variáveis do .env são passadas automaticamente
+      - TELEGRAM_RECREIO_TOKEN
+      - TELEGRAM_BANGU_TOKEN
+      - TELEGRAM_NOTIFICATION_CHAT_IDS
+      - WHATSAPP_RECREIO_GROUP
+      - WHATSAPP_BANGU_GROUP
+    volumes:
+      # Persistir dados do bot
+      - bot-data:/app/data
+      - bot-backups:/app/backups
+      - bot-logs:/app/logs
+      - bot-auth:/app/auth_info
+    ports:
+      - "3000:3000"  # Health check / Metrics
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - bot-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # REDIS
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: whatsapp-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bot-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ---------------------------------------------------------------------------
+  # PROMETHEUS (Opcional - para métricas)
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: whatsapp-prometheus
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - bot
+    networks:
+      - bot-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ---------------------------------------------------------------------------
+  # GRAFANA (Opcional - para dashboards)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: whatsapp-grafana
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - bot-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  bot-data:
+    name: whatsapp-bot-data
+  bot-backups:
+    name: whatsapp-bot-backups
+  bot-logs:
+    name: whatsapp-bot-logs
+  bot-auth:
+    name: whatsapp-bot-auth
+  redis-data:
+    name: whatsapp-redis-data
+  prometheus-data:
+    name: whatsapp-prometheus-data
+  grafana-data:
+    name: whatsapp-grafana-data
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  bot-network:
+    name: whatsapp-bot-network
+    driver: bridge

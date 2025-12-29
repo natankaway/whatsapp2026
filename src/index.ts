@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { whatsappService, telegramService, backupService } from './services/index.js';
 import { sqliteService, redisService } from './database/index.js';
+import { queueService, healthService, metricsService } from './infra/index.js';
 import { handleMessage, getMemoryStats } from './events/index.js';
 import { commandLoader } from './commands/index.js';
 import { pollHandler } from './handlers/index.js';
@@ -74,12 +75,31 @@ async function bootstrap(): Promise<void> {
     // Iniciar serviço de backup automático
     backupService.start();
 
+    // ==========================================================================
+    // FASE 4: Iniciar infraestrutura de escalabilidade
+    // ==========================================================================
+    logger.info('🔧 Inicializando infraestrutura...');
+
+    // Inicializar métricas
+    metricsService.initialize();
+
+    // Inicializar filas (requer Redis)
+    await queueService.initialize();
+    if (queueService.isReady()) {
+      await queueService.setupRecurringJobs();
+    }
+
+    // Iniciar servidor de health check
+    healthService.start();
+
     // Iniciar monitoramento de memória
     startMemoryMonitoring();
 
-    // Log de status dos bancos
+    // Log de status
     logger.info(`📊 [DB] SQLite: ${sqliteService.isReady() ? 'OK' : 'FALLBACK'}`);
     logger.info(`📊 [DB] Redis: ${redisService.isReady() ? 'OK' : 'FALLBACK (memória)'}`);
+    logger.info(`📊 [INFRA] Filas: ${queueService.isReady() ? 'OK' : 'FALLBACK (síncrono)'}`);
+    logger.info(`📊 [INFRA] Health: http://localhost:${process.env.HEALTH_PORT ?? 3000}/health`);
 
     logger.info('✅ Todos os serviços iniciados com sucesso!');
 
@@ -170,6 +190,8 @@ function setupGracefulShutdown(): void {
 
     try {
       // Parar serviços na ordem inversa
+      healthService.stop();
+      await queueService.close();
       backupService.stop();
       sessionManager.stopCleanupTimer();
       telegramService.stop();

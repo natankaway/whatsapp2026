@@ -1,0 +1,42 @@
+# Dependencies
+node_modules
+
+# Build output (we rebuild inside Docker)
+dist
+
+# Data directories
+data
+backups
+logs
+auth_info
+
+# Git
+.git
+.gitignore
+
+# Development files
+*.md
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__
+coverage
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files (not needed in image)
+docker-compose*.yml
+Dockerfile*
+.dockerignore
