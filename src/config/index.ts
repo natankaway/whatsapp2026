@@ -17,6 +17,9 @@ const CONFIG: AppConfig = {
     recreioToken: process.env.TELEGRAM_RECREIO_TOKEN ?? '',
     banguToken: process.env.TELEGRAM_BANGU_TOKEN ?? '',
     notificationChatIds: process.env.TELEGRAM_NOTIFICATION_CHAT_IDS?.split(',') ?? [],
+    authorizedUserIds: (process.env.TELEGRAM_AUTHORIZED_USER_IDS?.split(',') ?? [])
+      .map((id) => parseInt(id.trim(), 10))
+      .filter((id) => !isNaN(id)),
   },
 
   gruposWhatsApp: {

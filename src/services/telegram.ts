@@ -8,6 +8,18 @@ class TelegramService {
   private recreioBot: TelegramBot | null = null;
   private banguBot: TelegramBot | null = null;
 
+  /**
+   * Verifica se o usuário está autorizado a executar comandos
+   */
+  private isAuthorized(userId: number): boolean {
+    const authorizedIds = CONFIG.telegram.authorizedUserIds;
+    // Se não há IDs configurados, permite todos (modo legacy)
+    if (authorizedIds.length === 0) {
+      return true;
+    }
+    return authorizedIds.includes(userId);
+  }
+
   start(): void {
     try {
       if (CONFIG.telegram.recreioToken) {
@@ -60,6 +72,8 @@ class TelegramService {
     botType: 'recreio' | 'bangu'
   ): Promise<void> {
     const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+    const userName = msg.from?.username ?? msg.from?.first_name ?? 'Desconhecido';
     const text = msg.text ?? '';
     const parts = text.split(' ');
     const command = parts[0];
@@ -68,6 +82,27 @@ class TelegramService {
     const nameParts = parts.slice(3);
 
     const filePath = CONFIG.jsonFilePaths[botType];
+
+    // Verificar autorização (exceto /start e /help)
+    if (command !== '/start' && command !== '/help') {
+      if (!userId || !this.isAuthorized(userId)) {
+        logger.warn('Tentativa de acesso não autorizado ao Telegram', {
+          userId,
+          userName,
+          command,
+          chatId,
+        });
+        await bot.sendMessage(
+          chatId,
+          '⛔ *Acesso Negado*\n\n' +
+            'Você não está autorizado a executar comandos administrativos.\n' +
+            `Seu ID: \`${userId}\`\n\n` +
+            'Solicite autorização ao administrador.',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+    }
 
     if (command === '/start' || command === '/help') {
       await bot.sendMessage(

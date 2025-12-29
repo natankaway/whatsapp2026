@@ -140,6 +140,7 @@ export interface AppConfig {
     recreioToken: string;
     banguToken: string;
     notificationChatIds: string[];
+    authorizedUserIds: number[];
   };
   gruposWhatsApp: {
     recreio: string;

@@ -2,6 +2,7 @@ import pino, { Logger as PinoLogger } from 'pino';
 import path from 'path';
 import fs from 'fs';
 import CONFIG from '../config/index.js';
+import { getContext } from './correlationId.js';
 
 // Garantir que o diretório de logs existe
 if (!fs.existsSync(CONFIG.paths.logs)) {
@@ -18,7 +19,7 @@ const transport = isDevelopment
         colorize: true,
         translateTime: 'SYS:standard',
         ignore: 'pid,hostname',
-        messageFormat: '{msg}',
+        messageFormat: '[{correlationId}] {msg}',
       },
     }
   : {
@@ -43,6 +44,14 @@ const baseLogger = pino({
     pid: false,
   },
   timestamp: pino.stdTimeFunctions.isoTime,
+  mixin() {
+    const context = getContext();
+    return {
+      correlationId: context?.correlationId ?? '-',
+      userId: context?.userId,
+      source: context?.source,
+    };
+  },
 });
 
 // Wrapper para adicionar métodos úteis
