@@ -8,3 +8,4 @@ export {
   createDatabaseBreaker,
   createRedisBreaker,
 } from './circuitBreaker.js';
+export { default as alertService } from './alerts.js';
