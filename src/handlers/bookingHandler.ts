@@ -3,6 +3,7 @@ import type { WhatsAppSocket, UserSession, ExperimentalSession } from '../types/
 import CONFIG from '../config/index.js';
 import sessionManager from '../utils/sessionManager.js';
 import storage from '../utils/storage.js';
+import { sqliteService } from '../database/index.js';
 import validators from '../utils/validators.js';
 import { sendText, getNextWeekdays, getDayName, formatShortDate } from '../utils/messageHelpers.js';
 import notificationService from '../services/notification.js';
@@ -177,16 +178,38 @@ class BookingHandler {
       }
     }
 
-    // Verificar vagas disponíveis (dentro do lock para consistência)
+    // Verificar vagas disponíveis
     interface TimeSlot {
       original: string;
       label: string;
     }
 
     const availableTimes: TimeSlot[] = [];
+    const unit = experimental.unidade?.toLowerCase() as 'recreio' | 'bangu';
 
-    if (experimental.filePath) {
-      // Usar lock para leitura consistente
+    // Usar SQLite se disponível, senão fallback para JSON
+    if (sqliteService.isReady()) {
+      for (const time of timeOptions) {
+        const timeKey = time.split(' ')[0] ?? '';
+        const spotsTaken = sqliteService.countBookingsByTime(unit, dateISO, timeKey);
+
+        if (experimental.unidade === 'RECREIO') {
+          if (spotsTaken < 2) {
+            availableTimes.push({
+              original: time,
+              label: `${time} (${2 - spotsTaken} vagas)`,
+            });
+          }
+        } else {
+          // Bangu não tem limite de vagas no agendamento experimental
+          availableTimes.push({
+            original: time,
+            label: time,
+          });
+        }
+      }
+    } else if (experimental.filePath) {
+      // Fallback para JSON
       await bookingLock.acquire(experimental.filePath, async () => {
         const agenda = await storage.readAgenda(experimental.filePath!);
         const agendaDoDia = agenda[dateISO] ?? {};
@@ -203,7 +226,6 @@ class BookingHandler {
               });
             }
           } else {
-            // Bangu não tem limite de vagas no agendamento experimental
             availableTimes.push({
               original: time,
               label: time,
@@ -290,15 +312,21 @@ class BookingHandler {
     sessionManager.setData(from, 'experimental', experimental);
 
     // Verificar se pode trazer acompanhante (Recreio com 0 vagas ocupadas)
-    if (experimental.unidade === 'RECREIO' && experimental.filePath && experimental.selectedDate) {
-      // Usar lock para verificação consistente
+    if (experimental.unidade === 'RECREIO' && experimental.selectedDate) {
       let spotsTaken = 0;
-      await bookingLock.acquire(experimental.filePath, async () => {
-        const agenda = await storage.readAgenda(experimental.filePath!);
-        const dateISO = experimental.selectedDate!.toISOString().split('T')[0] ?? '';
-        const timeKey = experimental.selectedTime?.split(' ')[0] ?? '';
-        spotsTaken = agenda[dateISO]?.[timeKey]?.length ?? 0;
-      });
+      const dateISO = experimental.selectedDate.toISOString().split('T')[0] ?? '';
+      const timeKey = experimental.selectedTime?.split(' ')[0] ?? '';
+
+      // Usar SQLite se disponível
+      if (sqliteService.isReady()) {
+        spotsTaken = sqliteService.countBookingsByTime('recreio', dateISO, timeKey);
+      } else if (experimental.filePath) {
+        // Fallback para JSON
+        await bookingLock.acquire(experimental.filePath, async () => {
+          const agenda = await storage.readAgenda(experimental.filePath!);
+          spotsTaken = agenda[dateISO]?.[timeKey]?.length ?? 0;
+        });
+      }
 
       if (spotsTaken === 0) {
         sessionManager.setState(from, 'experimental_companion');
@@ -406,81 +434,132 @@ class BookingHandler {
   }
 
   /**
-   * Confirma o agendamento com proteção contra race conditions usando async-lock
+   * Confirma o agendamento com proteção contra race conditions
+   * Usa SQLite se disponível, senão fallback para JSON com async-lock
    */
   private async confirmBooking(sock: WhatsAppSocket, from: string): Promise<void> {
     const experimental = sessionManager.getData<ExperimentalSession>(from, 'experimental');
-    if (!experimental?.filePath || !experimental.selectedDate) return;
+    if (!experimental?.selectedDate) return;
 
     const dateISO = experimental.selectedDate.toISOString().split('T')[0] ?? '';
     const timeKey = experimental.selectedTime?.split(' ')[0] ?? '';
     const spotsNeeded = experimental.companion ? 2 : 1;
+    const unit = experimental.unidade?.toLowerCase() as 'recreio' | 'bangu';
 
     // ==========================================================================
-    // OPERAÇÃO ATÔMICA COM LOCK - PREVINE RACE CONDITIONS
+    // USAR SQLITE SE DISPONÍVEL (JÁ TEM TRANSAÇÕES ATÔMICAS)
     // ==========================================================================
-    try {
-      const result = await bookingLock.acquire(experimental.filePath, async () => {
-        // Ler agenda atual
-        const agenda = await storage.readAgenda(experimental.filePath!);
+    if (sqliteService.isReady()) {
+      try {
+        // Verificar vagas disponíveis
+        const spotsTaken = sqliteService.countBookingsByTime(unit, dateISO, timeKey);
 
-        // Garantir estrutura
-        if (!agenda[dateISO]) {
-          agenda[dateISO] = {};
-        }
-        if (!agenda[dateISO][timeKey]) {
-          agenda[dateISO][timeKey] = [];
-        }
-
-        const spotsTaken = agenda[dateISO][timeKey]?.length ?? 0;
-
-        // Verificar se ainda há vagas (apenas para Recreio que tem limite de 2)
         if (experimental.unidade === 'RECREIO' && spotsTaken + spotsNeeded > 2) {
-          return { success: false, reason: 'no_spots' };
+          await sendText(
+            sock,
+            from,
+            `😕 Poxa! Alguém agendou nesse horário enquanto você preenchia os dados. As vagas acabaram.\n\nDigite *4* para tentar outro horário.`
+          );
+          sessionManager.clearData(from);
+          sessionManager.setState(from, 'menu');
+          return;
         }
 
-        // Adicionar agendamento
-        agenda[dateISO][timeKey]?.push({
+        // Adicionar agendamento principal
+        sqliteService.addBooking({
+          unit,
+          date: dateISO,
+          time: timeKey,
           name: experimental.name ?? '',
           phone: from,
-          createdAt: new Date().toISOString(),
+          companion: experimental.companion ?? undefined,
         });
 
+        // Adicionar acompanhante se houver
         if (experimental.companion) {
-          agenda[dateISO][timeKey]?.push({
+          sqliteService.addBooking({
+            unit,
+            date: dateISO,
+            time: timeKey,
             name: `${experimental.companion} (Acompanhante)`,
             phone: from,
-            createdAt: new Date().toISOString(),
           });
         }
 
-        // Salvar atomicamente
-        await storage.writeAgenda(experimental.filePath!, agenda);
-
-        return { success: true };
-      });
-
-      if (!result.success) {
+        logger.info(`[SQLite] Agendamento criado: ${experimental.name} em ${dateISO} ${timeKey}`);
+      } catch (error) {
+        logger.error('Erro ao salvar agendamento no SQLite', error);
         await sendText(
           sock,
           from,
-          `😕 Poxa! Alguém agendou nesse horário enquanto você preenchia os dados. As vagas acabaram.\n\nDigite *4* para tentar outro horário.`
-        );
-        sessionManager.clearData(from);
-        sessionManager.setState(from, 'menu');
-        return;
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('async-lock timed out')) {
-        logger.error('Timeout ao tentar adquirir lock para agendamento', error);
-        await sendText(
-          sock,
-          from,
-          `⚠️ O sistema está muito ocupado no momento. Por favor, tente novamente em alguns segundos.`
+          `⚠️ Ocorreu um erro ao salvar seu agendamento. Por favor, tente novamente.`
         );
         return;
       }
-      throw error;
+    } else if (experimental.filePath) {
+      // ==========================================================================
+      // FALLBACK: JSON COM LOCK PARA PREVENIR RACE CONDITIONS
+      // ==========================================================================
+      try {
+        const result = await bookingLock.acquire(experimental.filePath, async () => {
+          const agenda = await storage.readAgenda(experimental.filePath!);
+
+          if (!agenda[dateISO]) {
+            agenda[dateISO] = {};
+          }
+          if (!agenda[dateISO][timeKey]) {
+            agenda[dateISO][timeKey] = [];
+          }
+
+          const spotsTaken = agenda[dateISO][timeKey]?.length ?? 0;
+
+          if (experimental.unidade === 'RECREIO' && spotsTaken + spotsNeeded > 2) {
+            return { success: false, reason: 'no_spots' };
+          }
+
+          agenda[dateISO][timeKey]?.push({
+            name: experimental.name ?? '',
+            phone: from,
+            createdAt: new Date().toISOString(),
+          });
+
+          if (experimental.companion) {
+            agenda[dateISO][timeKey]?.push({
+              name: `${experimental.companion} (Acompanhante)`,
+              phone: from,
+              createdAt: new Date().toISOString(),
+            });
+          }
+
+          await storage.writeAgenda(experimental.filePath!, agenda);
+          return { success: true };
+        });
+
+        if (!result.success) {
+          await sendText(
+            sock,
+            from,
+            `😕 Poxa! Alguém agendou nesse horário enquanto você preenchia os dados. As vagas acabaram.\n\nDigite *4* para tentar outro horário.`
+          );
+          sessionManager.clearData(from);
+          sessionManager.setState(from, 'menu');
+          return;
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('async-lock timed out')) {
+          logger.error('Timeout ao tentar adquirir lock para agendamento', error);
+          await sendText(
+            sock,
+            from,
+            `⚠️ O sistema está muito ocupado no momento. Por favor, tente novamente em alguns segundos.`
+          );
+          return;
+        }
+        throw error;
+      }
+    } else {
+      await sendText(sock, from, `⚠️ Erro de configuração. Por favor, tente novamente.`);
+      return;
     }
 
     // Enviar notificação para Telegram (fora do lock)

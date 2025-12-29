@@ -1,8 +1,11 @@
 import 'dotenv/config';
-import { whatsappService, telegramService } from './services/index.js';
+import { whatsappService, telegramService, backupService } from './services/index.js';
+import { sqliteService, redisService } from './database/index.js';
 import { handleMessage, getMemoryStats } from './events/index.js';
 import { commandLoader } from './commands/index.js';
 import { pollHandler } from './handlers/index.js';
+import sessionManager from './utils/sessionManager.js';
+import pauseManager from './utils/pauseManager.js';
 import logger from './utils/logger.js';
 
 // =============================================================================
@@ -24,7 +27,28 @@ async function bootstrap(): Promise<void> {
   logger.info(`💾 PID: ${process.pid}`);
 
   try {
-    // Carregar comandos
+    // ==========================================================================
+    // FASE 1: Inicializar bancos de dados
+    // ==========================================================================
+    logger.info('📦 Inicializando bancos de dados...');
+
+    // SQLite para agendamentos (sempre necessário)
+    await sqliteService.initialize();
+
+    // Redis para sessões (opcional - fallback para memória)
+    await redisService.initialize();
+
+    // Migrar dados JSON existentes para SQLite (se houver)
+    if (sqliteService.isReady()) {
+      await backupService.migrateJSONToSQLite();
+    }
+
+    // Sincronizar estado de pausa do Redis
+    await pauseManager.syncFromRedis();
+
+    // ==========================================================================
+    // FASE 2: Carregar comandos e iniciar serviços
+    // ==========================================================================
     await commandLoader.loadCommands();
 
     // Iniciar serviço WhatsApp
@@ -40,8 +64,22 @@ async function bootstrap(): Promise<void> {
     // Iniciar serviço Telegram
     telegramService.start();
 
+    // ==========================================================================
+    // FASE 3: Iniciar serviços auxiliares
+    // ==========================================================================
+
+    // Iniciar timer de limpeza de sessões
+    sessionManager.startCleanupTimer();
+
+    // Iniciar serviço de backup automático
+    backupService.start();
+
     // Iniciar monitoramento de memória
     startMemoryMonitoring();
+
+    // Log de status dos bancos
+    logger.info(`📊 [DB] SQLite: ${sqliteService.isReady() ? 'OK' : 'FALLBACK'}`);
+    logger.info(`📊 [DB] Redis: ${redisService.isReady() ? 'OK' : 'FALLBACK (memória)'}`);
 
     logger.info('✅ Todos os serviços iniciados com sucesso!');
 
@@ -131,8 +169,15 @@ function setupGracefulShutdown(): void {
     }, 30000); // 30 segundos
 
     try {
-      await whatsappService.stop();
+      // Parar serviços na ordem inversa
+      backupService.stop();
+      sessionManager.stopCleanupTimer();
       telegramService.stop();
+      await whatsappService.stop();
+
+      // Fechar conexões de banco
+      await redisService.close();
+      sqliteService.close();
 
       clearTimeout(forceExitTimeout);
       logger.info('👋 Aplicação encerrada com sucesso');
