@@ -14,9 +14,50 @@ import { commandLoader } from '../commands/loader.js';
 import { menuHandler } from '../handlers/menuHandler.js';
 import { bookingHandler } from '../handlers/bookingHandler.js';
 import { groupHandler } from '../handlers/groupHandler.js';
+import { v4 as uuidv4 } from 'uuid';
 
 // =============================================================================
-// SISTEMA DE MAPEAMENTO LID <-> JID
+// CONSTANTES DE CONFIGURAÇÃO
+// =============================================================================
+
+const MAX_MAP_SIZE = 10000; // Limite máximo para Maps em memória
+const RATE_LIMIT_MAX = CONFIG.rateLimit.maxRequests;
+const RATE_LIMIT_WINDOW = CONFIG.rateLimit.windowMs;
+
+// =============================================================================
+// RATE LIMITER INTEGRADO
+// =============================================================================
+
+interface RateLimitEntry {
+  count: number;
+  resetTime: number;
+  warned: boolean;
+}
+
+const rateLimits: Map<string, RateLimitEntry> = new Map();
+
+function checkRateLimit(chatId: string): { allowed: boolean; shouldWarn: boolean } {
+  const now = Date.now();
+  const entry = rateLimits.get(chatId);
+
+  if (!entry || now > entry.resetTime) {
+    rateLimits.set(chatId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW, warned: false });
+    return { allowed: true, shouldWarn: false };
+  }
+
+  entry.count++;
+
+  if (entry.count > RATE_LIMIT_MAX) {
+    const shouldWarn = !entry.warned;
+    entry.warned = true;
+    return { allowed: false, shouldWarn };
+  }
+
+  return { allowed: true, shouldWarn: false };
+}
+
+// =============================================================================
+// SISTEMA DE MAPEAMENTO LID <-> JID COM LIMITE DE TAMANHO (LRU-like)
 // =============================================================================
 // O WhatsApp pode usar LID (@lid) ou JID (@s.whatsapp.net) para o mesmo contato
 // Precisamos manter um mapeamento bidirecional para pausar corretamente
@@ -30,24 +71,88 @@ const lidToJidMap: Map<string, string> = new Map();
 // Mapa: chatId -> timestamp da última interação
 const activeChats: Map<string, number> = new Map();
 
-// Limpar chats antigos (mais de 2 horas sem interação)
+/**
+ * Limita o tamanho de um Map removendo as entradas mais antigas
+ */
+function enforceMapLimit<K, V>(map: Map<K, V>, maxSize: number, getName: string): void {
+  if (map.size <= maxSize) return;
+
+  const toRemove = map.size - maxSize + Math.floor(maxSize * 0.1); // Remove 10% extra
+  let removed = 0;
+
+  for (const key of map.keys()) {
+    if (removed >= toRemove) break;
+    map.delete(key);
+    removed++;
+  }
+
+  logger.debug(`[MEMORY] ${getName}: removidas ${removed} entradas antigas (tamanho: ${map.size})`);
+}
+
+/**
+ * Limita Maps com base em timestamp (activeChats)
+ */
+function enforceActiveChatsLimit(): void {
+  if (activeChats.size <= MAX_MAP_SIZE) return;
+
+  // Ordenar por timestamp e remover os mais antigos
+  const entries = [...activeChats.entries()].sort((a, b) => a[1] - b[1]);
+  const toRemove = entries.slice(0, activeChats.size - MAX_MAP_SIZE + 1000);
+
+  for (const [key] of toRemove) {
+    activeChats.delete(key);
+    // Limpar mapeamentos relacionados
+    jidToLidMap.delete(key);
+    for (const [lid, jid] of lidToJidMap.entries()) {
+      if (jid === key) lidToJidMap.delete(lid);
+    }
+  }
+
+  logger.debug(`[MEMORY] activeChats: removidas ${toRemove.length} entradas antigas`);
+}
+
+// Limpar dados antigos periodicamente
 setInterval(() => {
   const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+  let cleanedChats = 0;
+  let cleanedMappings = 0;
+
   for (const [id, timestamp] of activeChats.entries()) {
     if (timestamp < twoHoursAgo) {
       activeChats.delete(id);
+      cleanedChats++;
       // Limpar mapeamentos antigos também
-      for (const [jid, lid] of jidToLidMap.entries()) {
-        if (lid === id || jid === id) {
-          jidToLidMap.delete(jid);
-        }
+      if (jidToLidMap.has(id)) {
+        jidToLidMap.delete(id);
+        cleanedMappings++;
       }
       for (const [lid, jid] of lidToJidMap.entries()) {
-        if (lid === id || jid === id) {
+        if (jid === id || lid === id) {
           lidToJidMap.delete(lid);
+          cleanedMappings++;
         }
       }
     }
+  }
+
+  // Limpar rate limits antigos
+  const now = Date.now();
+  let cleanedRateLimits = 0;
+  for (const [key, entry] of rateLimits.entries()) {
+    if (now > entry.resetTime) {
+      rateLimits.delete(key);
+      cleanedRateLimits++;
+    }
+  }
+
+  // Forçar limites de tamanho
+  enforceMapLimit(jidToLidMap, MAX_MAP_SIZE, 'jidToLidMap');
+  enforceMapLimit(lidToJidMap, MAX_MAP_SIZE, 'lidToJidMap');
+  enforceMapLimit(rateLimits, MAX_MAP_SIZE, 'rateLimits');
+  enforceActiveChatsLimit();
+
+  if (cleanedChats > 0 || cleanedMappings > 0 || cleanedRateLimits > 0) {
+    logger.info(`[CLEANUP] Removidos: ${cleanedChats} chats, ${cleanedMappings} mapeamentos, ${cleanedRateLimits} rate limits`);
   }
 }, 10 * 60 * 1000);
 
@@ -60,19 +165,26 @@ async function handleMessage(
   data: BaileysEventMap['messages.upsert']
 ): Promise<void> {
   for (const message of data.messages) {
+    // Gerar correlationId único para rastreamento
+    const correlationId = uuidv4().substring(0, 8);
+
     try {
-      await processMessage(sock, message);
+      await processMessage(sock, message, correlationId);
     } catch (error) {
       if (error instanceof Error && error.message.includes('Bad MAC')) {
-        logger.warn('Bad MAC Error detectado, ignorando mensagem');
+        logger.warn(`[${correlationId}] Bad MAC Error detectado, ignorando mensagem`);
         continue;
       }
-      logger.error('Erro ao processar mensagem', error);
+      logger.error(`[${correlationId}] Erro ao processar mensagem`, error);
     }
   }
 }
 
-async function processMessage(sock: WhatsAppSocket, message: Message): Promise<void> {
+async function processMessage(
+  sock: WhatsAppSocket,
+  message: Message,
+  correlationId: string
+): Promise<void> {
   const remoteJid = message.key.remoteJid;
   if (!remoteJid) return;
 
@@ -93,14 +205,32 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
   // IGNORAR MENSAGENS VAZIAS (reações, confirmações de leitura, etc)
   // ==========================================================================
   if (!text || text.trim() === '') {
-    logger.debug(`[SKIP] Mensagem vazia de ${remoteJid}`);
+    logger.debug(`[${correlationId}] [SKIP] Mensagem vazia de ${remoteJid}`);
     return;
   }
 
   // Ignorar mensagens antigas (mais de 60 segundos)
   if (isOldMessage(message, 60000)) {
-    logger.debug(`[SKIP] Mensagem antiga de ${remoteJid}`);
+    logger.debug(`[${correlationId}] [SKIP] Mensagem antiga de ${remoteJid}`);
     return;
+  }
+
+  // ==========================================================================
+  // RATE LIMITING (aplicado antes de processar)
+  // ==========================================================================
+  if (!fromMe && !isGroup) {
+    const rateCheck = checkRateLimit(remoteJid);
+    if (!rateCheck.allowed) {
+      if (rateCheck.shouldWarn) {
+        logger.warn(`[${correlationId}] Rate limit atingido para ${remoteJid}`);
+        await sendText(
+          sock,
+          remoteJid,
+          '⚠️ Você está enviando muitas mensagens. Aguarde um momento antes de continuar.'
+        );
+      }
+      return;
+    }
   }
 
   // ==========================================================================
@@ -108,7 +238,7 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
   // ==========================================================================
   if (isGroup) {
     if (fromMe) return;
-    logger.info(`[GRUPO] Mensagem de ${remoteJid}: "${text.substring(0, 50)}"`);
+    logger.info(`[${correlationId}] [GRUPO] Mensagem de ${remoteJid}: "${text.substring(0, 50)}"`);
     await groupHandler.handleGroupMessage(sock, remoteJid, text, message);
     return;
   }
@@ -116,7 +246,7 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
   // ==========================================================================
   // CHAT PRIVADO
   // ==========================================================================
-  logger.info(`[PRIVADO] De ${remoteJid}, fromMe=${fromMe}, texto="${text.substring(0, 50)}"`);
+  logger.info(`[${correlationId}] [PRIVADO] De ${remoteJid}, fromMe=${fromMe}, texto="${text.substring(0, 50)}"`);
 
   // Determinar o chatId a ser usado (resolve LID <-> JID)
   let chatId = remoteJid;
@@ -125,7 +255,7 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
     // ========================================================================
     // ATENDENTE ENVIANDO MENSAGEM
     // ========================================================================
-    
+
     // Se estamos enviando via JID normal, usar ele
     if (remoteJid.endsWith('@s.whatsapp.net')) {
       chatId = remoteJid;
@@ -141,7 +271,7 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
       }
     }
 
-    logger.info(`[ATENDENTE] Mensagem para ${chatId}: "${text.substring(0, 50)}"`);
+    logger.info(`[${correlationId}] [ATENDENTE] Mensagem para ${chatId}: "${text.substring(0, 50)}"`);
 
     const textLower = text.toLowerCase().trim();
 
@@ -157,20 +287,20 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
         const lid = jidToLidMap.get(remoteJid);
         if (lid) pauseManager.resumeBot(lid);
       }
-      
+
       await sendText(sock, chatId, '🤖 *Bot Reativado!* Voltando ao automático...');
-      logger.info(`Bot reativado para ${chatId}`);
+      logger.info(`[${correlationId}] Bot reativado para ${chatId}`);
       return;
     }
 
     // Qualquer outra mensagem = pausa o bot
     const alreadyPaused = pauseManager.isPaused(chatId) || pauseManager.isPaused(remoteJid);
-    
+
     if (!alreadyPaused) {
       // Pausar para TODOS os IDs relacionados a este chat
       pauseManager.pauseBot(chatId);
       pauseManager.pauseBot(remoteJid);
-      
+
       // Se temos mapeamento, pausar também o outro ID
       if (isLid) {
         const jid = lidToJidMap.get(remoteJid);
@@ -185,38 +315,38 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
         chatId,
         '💬 *Atendimento manual ativado.*\n_Digite "menu" quando quiser voltar ao bot automático._'
       );
-      logger.info(`Bot pausado para ${chatId} - Atendente assumiu`);
+      logger.info(`[${correlationId}] Bot pausado para ${chatId} - Atendente assumiu`);
     }
-    
+
     // Atualizar timestamp
     activeChats.set(chatId, Date.now());
     activeChats.set(remoteJid, Date.now());
-    
+
     return;
   }
 
   // ==========================================================================
   // CLIENTE ENVIANDO MENSAGEM
   // ==========================================================================
-  
+
   // Atualizar mapeamentos baseado no ID que o cliente usou
   if (isLid) {
     // Cliente mandou via LID
     chatId = remoteJid;
-    
+
     // Verificar se já temos um JID mapeado para este LID
     const existingJid = lidToJidMap.get(remoteJid);
     if (existingJid) {
       // Usar o JID existente como referência principal
       jidToLidMap.set(existingJid, remoteJid);
-      
+
       // IMPORTANTE: Se o JID estava pausado, pausar o LID também
       if (pauseManager.isPaused(existingJid)) {
         pauseManager.pauseBot(remoteJid);
-        logger.debug(`LID ${remoteJid} herdou pausa de ${existingJid}`);
+        logger.debug(`[${correlationId}] LID ${remoteJid} herdou pausa de ${existingJid}`);
       }
     }
-    
+
     // Tentar associar este LID com um JID recente que teve interação do atendente
     // Isso captura casos onde o atendente mandou mensagem e o cliente respondeu via LID
     for (const [jid, timestamp] of activeChats.entries()) {
@@ -228,14 +358,14 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
           lidToJidMap.set(remoteJid, jid);
           jidToLidMap.set(jid, remoteJid);
           pauseManager.pauseBot(remoteJid);
-          logger.info(`Associação automática criada: ${remoteJid} <-> ${jid}`);
+          logger.info(`[${correlationId}] Associação automática criada: ${remoteJid} <-> ${jid}`);
         }
       }
     }
   } else {
     // Cliente mandou via JID normal
     chatId = remoteJid;
-    
+
     // Se existe um LID mapeado, atualizar associação
     const existingLid = jidToLidMap.get(remoteJid);
     if (existingLid) {
@@ -247,20 +377,20 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
   activeChats.set(chatId, Date.now());
   activeChats.set(remoteJid, Date.now());
 
-  logger.info(`[CLIENTE] Mensagem de ${chatId}: "${text.substring(0, 50)}"`);
+  logger.info(`[${correlationId}] [CLIENTE] Mensagem de ${chatId}: "${text.substring(0, 50)}"`);
 
   // ==========================================================================
   // VERIFICAR SE BOT ESTÁ PAUSADO
   // ==========================================================================
   // Verificar pausa para QUALQUER ID relacionado
-  const isPausedForChat = pauseManager.isPaused(chatId) || 
+  const isPausedForChat = pauseManager.isPaused(chatId) ||
                           pauseManager.isPaused(remoteJid) ||
                           (isLid && lidToJidMap.has(remoteJid) && pauseManager.isPaused(lidToJidMap.get(remoteJid)!)) ||
                           (!isLid && jidToLidMap.has(remoteJid) && pauseManager.isPaused(jidToLidMap.get(remoteJid)!));
 
   if (isPausedForChat) {
-    logger.info(`[CLIENTE] Bot pausado para ${chatId}`);
-    
+    logger.info(`[${correlationId}] [CLIENTE] Bot pausado para ${chatId}`);
+
     const textLower = text.toLowerCase().trim();
     if (textLower === 'menu') {
       // Reativar para todos os IDs relacionados
@@ -272,14 +402,14 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
       if (!isLid && jidToLidMap.has(remoteJid)) {
         pauseManager.resumeBot(jidToLidMap.get(remoteJid)!);
       }
-      
+
       await sendText(sock, chatId, '🤖 Bot reativado!');
       sessionManager.setState(chatId, 'menu');
       sessionManager.clearData(chatId);
       await sendText(sock, chatId, CONFIG.menuPrincipal);
-      logger.info(`Bot reativado para ${chatId} pelo cliente`);
+      logger.info(`[${correlationId}] Bot reativado para ${chatId} pelo cliente`);
     } else {
-      logger.info(`[CLIENTE] Mensagem ignorada (bot pausado): "${text.substring(0, 30)}"`);
+      logger.info(`[${correlationId}] [CLIENTE] Mensagem ignorada (bot pausado): "${text.substring(0, 30)}"`);
     }
     return;
   }
@@ -287,7 +417,7 @@ async function processMessage(sock: WhatsAppSocket, message: Message): Promise<v
   // ==========================================================================
   // BOT ATIVO - PROCESSAR MENSAGEM NORMALMENTE
   // ==========================================================================
-  await handlePrivateMessage(sock, chatId, text, message);
+  await handlePrivateMessage(sock, chatId, text, message, correlationId);
 }
 
 // =============================================================================
@@ -298,7 +428,8 @@ async function handlePrivateMessage(
   sock: WhatsAppSocket,
   from: string,
   text: string,
-  message: Message
+  message: Message,
+  correlationId: string
 ): Promise<void> {
   const lowerText = text.toLowerCase().trim();
   const session = sessionManager.getSession(from);
@@ -306,7 +437,7 @@ async function handlePrivateMessage(
   // Verificar resposta de botão
   const buttonResponse = parseButtonResponse(message);
   if (buttonResponse) {
-    await handleButtonResponse(sock, from, buttonResponse.id, session);
+    await handleButtonResponse(sock, from, buttonResponse.id, session, correlationId);
     return;
   }
 
@@ -321,6 +452,7 @@ async function handlePrivateMessage(
   // Tentar executar comando
   const command = commandLoader.getCommand(lowerText);
   if (command && !command.isGroupOnly) {
+    logger.commandExecuted(command.name, from);
     await command.execute({
       sock,
       from,
@@ -357,7 +489,7 @@ async function handlePrivateMessage(
       await bookingHandler.handleBookingFlow(sock, from, text, session);
       break;
     case 'waiting_message':
-      logger.debug(`Mensagem do usuário ${from}: ${text}`);
+      logger.debug(`[${correlationId}] Mensagem do usuário ${from}: ${text}`);
       break;
     default:
       sessionManager.setState(from, 'menu');
@@ -373,9 +505,10 @@ async function handleButtonResponse(
   sock: WhatsAppSocket,
   from: string,
   buttonId: string,
-  session: ReturnType<typeof sessionManager.getSession>
+  session: ReturnType<typeof sessionManager.getSession>,
+  correlationId: string
 ): Promise<void> {
-  logger.debug(`Botão clicado: ${buttonId} por ${from}`);
+  logger.debug(`[${correlationId}] Botão clicado: ${buttonId} por ${from}`);
 
   if (buttonId.startsWith('menu_')) {
     const option = buttonId.replace('menu_', '');
@@ -463,6 +596,24 @@ export function getLidForJid(jid: string): string | undefined {
 
 export function getJidForLid(lid: string): string | undefined {
   return lidToJidMap.get(lid);
+}
+
+// =============================================================================
+// ESTATÍSTICAS (para monitoramento)
+// =============================================================================
+
+export function getMemoryStats(): {
+  activeChats: number;
+  jidToLidMappings: number;
+  lidToJidMappings: number;
+  rateLimits: number;
+} {
+  return {
+    activeChats: activeChats.size,
+    jidToLidMappings: jidToLidMap.size,
+    lidToJidMappings: lidToJidMap.size,
+    rateLimits: rateLimits.size,
+  };
 }
 
 export { handleMessage };

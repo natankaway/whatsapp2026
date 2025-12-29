@@ -1,2 +1,2 @@
 export { EventEmitter } from './eventEmitter.js';
-export { handleMessage } from './messageHandler.js';
+export { handleMessage, getMemoryStats } from './messageHandler.js';

@@ -1,12 +1,27 @@
 import 'dotenv/config';
 import { whatsappService, telegramService } from './services/index.js';
-import { handleMessage } from './events/index.js';
+import { handleMessage, getMemoryStats } from './events/index.js';
 import { commandLoader } from './commands/index.js';
 import { pollHandler } from './handlers/index.js';
 import logger from './utils/logger.js';
 
+// =============================================================================
+// CONFIGURAÇÕES
+// =============================================================================
+
+const MAX_CONNECTION_WAIT_MS = 5 * 60 * 1000; // 5 minutos para aguardar conexão
+const MEMORY_LOG_INTERVAL_MS = 30 * 60 * 1000; // Log de memória a cada 30 minutos
+const CONNECTION_CHECK_INTERVAL_MS = 1000; // Verificar conexão a cada 1 segundo
+
+// =============================================================================
+// BOOTSTRAP
+// =============================================================================
+
 async function bootstrap(): Promise<void> {
   logger.info('🚀 Iniciando Bot CT LK Futevôlei v3.0...');
+  logger.info(`📅 Data/Hora: ${new Date().toLocaleString('pt-BR')}`);
+  logger.info(`🖥️  Node.js: ${process.version}`);
+  logger.info(`💾 PID: ${process.pid}`);
 
   try {
     // Carregar comandos
@@ -19,52 +34,153 @@ async function bootstrap(): Promise<void> {
     const eventEmitter = whatsappService.getEventEmitter();
     eventEmitter.on('messages.upsert', handleMessage);
 
-    // Aguardar conexão e configurar enquetes
-    const checkConnection = setInterval(() => {
-      if (whatsappService.isConnected()) {
-        clearInterval(checkConnection);
-        const sock = whatsappService.getSocket();
-        if (sock) {
-          pollHandler.schedulePolls(sock);
-        }
-      }
-    }, 1000);
+    // Aguardar conexão com timeout
+    await waitForConnection();
 
     // Iniciar serviço Telegram
     telegramService.start();
 
+    // Iniciar monitoramento de memória
+    startMemoryMonitoring();
+
     logger.info('✅ Todos os serviços iniciados com sucesso!');
 
     // Tratamento de encerramento gracioso
-    const gracefulShutdown = async (signal: string): Promise<void> => {
-      logger.info(`⏹️ Recebido ${signal}, encerrando aplicação...`);
-
-      try {
-        await whatsappService.stop();
-        telegramService.stop();
-        logger.info('👋 Aplicação encerrada com sucesso');
-        process.exit(0);
-      } catch (error) {
-        logger.error('Erro ao encerrar aplicação', error);
-        process.exit(1);
-      }
-    };
-
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    setupGracefulShutdown();
 
     // Tratamento de erros não capturados
-    process.on('uncaughtException', (error) => {
-      logger.error('Erro não capturado', error);
-    });
+    setupErrorHandlers();
 
-    process.on('unhandledRejection', (reason) => {
-      logger.error('Promise rejeitada não tratada', reason);
-    });
   } catch (error) {
     logger.error('❌ Erro ao iniciar aplicação', error);
     process.exit(1);
   }
 }
+
+// =============================================================================
+// AGUARDAR CONEXÃO COM TIMEOUT
+// =============================================================================
+
+async function waitForConnection(): Promise<void> {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    let pollsScheduled = false;
+
+    const checkConnection = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+
+      if (whatsappService.isConnected() && !pollsScheduled) {
+        clearInterval(checkConnection);
+        pollsScheduled = true;
+
+        const sock = whatsappService.getSocket();
+        if (sock) {
+          pollHandler.schedulePolls(sock);
+          logger.info(`✅ Conexão estabelecida em ${Math.round(elapsed / 1000)}s`);
+        }
+        resolve();
+        return;
+      }
+
+      // Timeout - não conseguiu conectar
+      if (elapsed > MAX_CONNECTION_WAIT_MS) {
+        clearInterval(checkConnection);
+        logger.warn(`⚠️ Timeout aguardando conexão inicial (${MAX_CONNECTION_WAIT_MS / 1000}s)`);
+        // Não rejeitar - permitir que o bot continue tentando reconectar
+        resolve();
+      }
+    }, CONNECTION_CHECK_INTERVAL_MS);
+  });
+}
+
+// =============================================================================
+// MONITORAMENTO DE MEMÓRIA
+// =============================================================================
+
+function startMemoryMonitoring(): void {
+  setInterval(() => {
+    const memUsage = process.memoryUsage();
+    const stats = getMemoryStats();
+
+    logger.info(`📊 [MEMORY] Heap: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)}MB | RSS: ${Math.round(memUsage.rss / 1024 / 1024)}MB`);
+    logger.info(`📊 [STATS] Chats ativos: ${stats.activeChats} | Mapeamentos: ${stats.jidToLidMappings} | Rate limits: ${stats.rateLimits}`);
+  }, MEMORY_LOG_INTERVAL_MS);
+}
+
+// =============================================================================
+// GRACEFUL SHUTDOWN
+// =============================================================================
+
+function setupGracefulShutdown(): void {
+  let isShuttingDown = false;
+
+  const gracefulShutdown = async (signal: string): Promise<void> => {
+    // Evitar múltiplas chamadas
+    if (isShuttingDown) {
+      logger.warn(`⚠️ Shutdown já em andamento, ignorando ${signal}`);
+      return;
+    }
+    isShuttingDown = true;
+
+    logger.info(`⏹️ Recebido ${signal}, encerrando aplicação...`);
+
+    // Timeout para forçar encerramento se demorar muito
+    const forceExitTimeout = setTimeout(() => {
+      logger.error('⚠️ Timeout no graceful shutdown, forçando encerramento');
+      process.exit(1);
+    }, 30000); // 30 segundos
+
+    try {
+      await whatsappService.stop();
+      telegramService.stop();
+
+      clearTimeout(forceExitTimeout);
+      logger.info('👋 Aplicação encerrada com sucesso');
+      process.exit(0);
+    } catch (error) {
+      clearTimeout(forceExitTimeout);
+      logger.error('Erro ao encerrar aplicação', error);
+      process.exit(1);
+    }
+  };
+
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+}
+
+// =============================================================================
+// TRATAMENTO DE ERROS NÃO CAPTURADOS
+// =============================================================================
+
+function setupErrorHandlers(): void {
+  // uncaughtException - erro síncrono não capturado
+  // DEVE encerrar o processo pois o estado da aplicação pode estar corrompido
+  process.on('uncaughtException', (error: Error) => {
+    logger.error('💀 [FATAL] Erro não capturado - encerrando processo', error);
+
+    // Dar um pequeno delay para o log ser escrito
+    setTimeout(() => {
+      process.exit(1);
+    }, 1000);
+  });
+
+  // unhandledRejection - promise rejeitada sem catch
+  // Pode ser recuperável, mas é melhor encerrar para evitar comportamento indefinido
+  process.on('unhandledRejection', (reason: unknown) => {
+    logger.error('💀 [FATAL] Promise rejeitada não tratada', reason);
+
+    // Converter para uncaughtException para garantir encerramento
+    throw reason instanceof Error ? reason : new Error(String(reason));
+  });
+
+  // Aviso de deprecation
+  process.on('warning', (warning) => {
+    logger.warn(`⚠️ [WARNING] ${warning.name}: ${warning.message}`);
+  });
+}
+
+// =============================================================================
+// INICIAR APLICAÇÃO
+// =============================================================================
 
 bootstrap();
