@@ -199,6 +199,11 @@ class QueueService {
         },
       }
     );
+    this.notificationWorker.on('error', (err) => {
+      if (err.message.includes('Redis version')) {
+        this.cleanup();
+      }
+    });
 
     // Worker de backup
     this.backupWorker = new Worker<BackupJob>(
@@ -215,6 +220,7 @@ class QueueService {
         concurrency: 1, // Apenas um backup por vez
       }
     );
+    this.backupWorker.on('error', () => {}); // Silenciar - tratado no primeiro worker
 
     // Worker de limpeza
     this.cleanupWorker = new Worker<CleanupJob>(
@@ -241,6 +247,7 @@ class QueueService {
         concurrency: 1,
       }
     );
+    this.cleanupWorker.on('error', () => {}); // Silenciar
 
     // Worker de lembretes
     this.reminderWorker = new Worker<ReminderJob>(
@@ -305,6 +312,7 @@ class QueueService {
         },
       }
     );
+    this.reminderWorker.on('error', () => {}); // Silenciar
   }
 
   private setupEventListeners(): void {
