@@ -12,7 +12,7 @@ import logger from '../utils/logger.js';
 // Usado por orquestradores (Docker, K8s) e load balancers.
 // =============================================================================
 
-const HEALTH_PORT = parseInt(process.env.HEALTH_PORT ?? '3000');
+const HEALTH_PORT = parseInt(process.env.HEALTH_PORT ?? '3001');
 
 interface HealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
