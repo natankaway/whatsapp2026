@@ -24,6 +24,10 @@ const CONNECTION_CHECK_INTERVAL_MS = 1000; // Verificar conexão a cada 1 segund
 // =============================================================================
 
 async function bootstrap(): Promise<void> {
+  // Configurar handlers de erro ANTES de qualquer inicialização
+  // para capturar erros assíncronos do BullMQ (Redis incompatível)
+  setupErrorHandlers();
+
   logger.info('🚀 Iniciando Bot CT LK Futevôlei v3.0...');
   logger.info(`📅 Data/Hora: ${new Date().toLocaleString('pt-BR')}`);
   logger.info(`🖥️  Node.js: ${process.version}`);
@@ -113,9 +117,6 @@ async function bootstrap(): Promise<void> {
 
     // Tratamento de encerramento gracioso
     setupGracefulShutdown();
-
-    // Tratamento de erros não capturados
-    setupErrorHandlers();
 
   } catch (error) {
     logger.error('❌ Erro ao iniciar aplicação', error);
@@ -232,6 +233,12 @@ function setupErrorHandlers(): void {
   // uncaughtException - erro síncrono não capturado
   // DEVE encerrar o processo pois o estado da aplicação pode estar corrompido
   process.on('uncaughtException', (error: Error) => {
+    // Ignorar erros de versão do Redis (BullMQ requer Redis 5.0+)
+    if (error.message.includes('Redis version')) {
+      logger.warn('⚠️ [Queue] Erro de versão do Redis ignorado - filas desabilitadas');
+      return;
+    }
+
     logger.error('💀 [FATAL] Erro não capturado - encerrando processo', error);
 
     // Dar um pequeno delay para o log ser escrito
@@ -243,6 +250,14 @@ function setupErrorHandlers(): void {
   // unhandledRejection - promise rejeitada sem catch
   // Pode ser recuperável, mas é melhor encerrar para evitar comportamento indefinido
   process.on('unhandledRejection', (reason: unknown) => {
+    // Ignorar erros de versão do Redis (BullMQ requer Redis 5.0+)
+    // Esses erros são esperados quando o usuário tem versão antiga do Redis
+    const errorMessage = reason instanceof Error ? reason.message : String(reason);
+    if (errorMessage.includes('Redis version')) {
+      logger.warn('⚠️ [Queue] Erro de versão do Redis ignorado - filas desabilitadas');
+      return;
+    }
+
     logger.error('💀 [FATAL] Promise rejeitada não tratada', reason);
 
     // Converter para uncaughtException para garantir encerramento
