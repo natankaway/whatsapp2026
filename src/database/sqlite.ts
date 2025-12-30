@@ -70,6 +70,40 @@ export interface SettingsRecord {
   updatedAt: string;
 }
 
+export interface PollScheduleRecord {
+  id?: number;
+  name: string;
+  description?: string;
+  targetGroup: 'recreio' | 'bangu' | 'custom';
+  customGroupId?: string;
+  dayOfWeek: string; // dia da semana para nome da enquete (segunda, terca, etc)
+  pollOptions: string[]; // opções da enquete
+  scheduleHour: number; // 0-23
+  scheduleMinute: number; // 0-59
+  scheduleDays: number[]; // dias da semana que executa (0=dom, 1=seg, ..., 6=sab)
+  isActive: boolean;
+  lastExecutedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PollScheduleRecordRaw {
+  id: number;
+  name: string;
+  description: string | null;
+  targetGroup: string;
+  customGroupId: string | null;
+  dayOfWeek: string;
+  pollOptions: string;
+  scheduleHour: number;
+  scheduleMinute: number;
+  scheduleDays: string;
+  isActive: number;
+  lastExecutedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BotSettings {
   botPaused: boolean;
   pauseReason?: string;
@@ -368,6 +402,131 @@ class SQLiteService {
           const stmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
           for (const setting of defaultSettings) {
             stmt.run(setting.key, setting.value);
+          }
+        },
+      },
+      {
+        name: '008_create_poll_schedules_table',
+        up: (db) => {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS poll_schedules (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              description TEXT,
+              target_group TEXT NOT NULL CHECK(target_group IN ('recreio', 'bangu', 'custom')),
+              custom_group_id TEXT,
+              day_of_week TEXT NOT NULL,
+              poll_options TEXT NOT NULL DEFAULT '[]',
+              schedule_hour INTEGER NOT NULL CHECK(schedule_hour >= 0 AND schedule_hour <= 23),
+              schedule_minute INTEGER NOT NULL DEFAULT 0 CHECK(schedule_minute >= 0 AND schedule_minute <= 59),
+              schedule_days TEXT NOT NULL DEFAULT '[]',
+              is_active INTEGER NOT NULL DEFAULT 1,
+              last_executed_at TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_poll_schedules_active ON poll_schedules(is_active)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_poll_schedules_target ON poll_schedules(target_group)`);
+
+          // Seed default poll schedules based on current hardcoded values
+          const defaultSchedules = [
+            // RECREIO - Segunda a Sexta às 8h
+            {
+              name: 'Recreio - Segunda a Sexta 8h',
+              description: 'Enquete diária do Recreio para treinos',
+              targetGroup: 'recreio',
+              dayOfWeek: 'auto', // usa o dia atual
+              pollOptions: JSON.stringify(['17:30 ⚡', '18:30 ⚡', '19:30 ⚡']),
+              scheduleHour: 8,
+              scheduleMinute: 0,
+              scheduleDays: JSON.stringify([1, 2, 3, 4, 5]), // seg-sex
+            },
+            // RECREIO - Sexta 20h (para sábado)
+            {
+              name: 'Recreio - Sábado (sexta 20h)',
+              description: 'Enquete de sábado enviada na sexta à noite',
+              targetGroup: 'recreio',
+              dayOfWeek: 'sabado',
+              pollOptions: JSON.stringify(['Treino ⚡', 'Treino + Joguinho ⚡']),
+              scheduleHour: 20,
+              scheduleMinute: 0,
+              scheduleDays: JSON.stringify([5]), // sexta
+            },
+            // BANGU - Domingo 21h (para segunda)
+            {
+              name: 'Bangu - Segunda (domingo 21h)',
+              description: 'Enquete de segunda enviada no domingo à noite',
+              targetGroup: 'bangu',
+              dayOfWeek: 'segunda',
+              pollOptions: JSON.stringify(['07h00 - LIVRE ⚡', '08h00 - LIVRE ⚡', '09h00 - INICIANTES ⚡', '17h00 - AVANÇADO ⚡', '18h00 - INTERMEDIÁRIO ⚡', '19h00 - INICIANTES ⚡', '20h00 - LIVRE ⚡']),
+              scheduleHour: 21,
+              scheduleMinute: 0,
+              scheduleDays: JSON.stringify([0]), // domingo
+            },
+            // BANGU - Terça 13h (para terça - mesmo dia)
+            {
+              name: 'Bangu - Terça 13h',
+              description: 'Enquete de terça (mesmo dia)',
+              targetGroup: 'bangu',
+              dayOfWeek: 'terca',
+              pollOptions: JSON.stringify(['19h00 - INTERMEDIÁRIO ⚡', '20h00 - INICIANTES ⚡', '21h00 - AVANÇADO ⚡']),
+              scheduleHour: 13,
+              scheduleMinute: 0,
+              scheduleDays: JSON.stringify([2]), // terça
+            },
+            // BANGU - Terça 21h (para quarta)
+            {
+              name: 'Bangu - Quarta (terça 21h)',
+              description: 'Enquete de quarta enviada na terça à noite',
+              targetGroup: 'bangu',
+              dayOfWeek: 'quarta',
+              pollOptions: JSON.stringify(['07h00 - LIVRE ⚡', '08h00 - LIVRE ⚡', '09h00 - INICIANTES ⚡', '17h00 - AVANÇADO ⚡', '18h00 - INTERMEDIÁRIO ⚡', '19h00 - INICIANTES ⚡']),
+              scheduleHour: 21,
+              scheduleMinute: 0,
+              scheduleDays: JSON.stringify([2]), // terça
+            },
+            // BANGU - Quinta 13h (para quinta - mesmo dia)
+            {
+              name: 'Bangu - Quinta 13h',
+              description: 'Enquete de quinta (mesmo dia)',
+              targetGroup: 'bangu',
+              dayOfWeek: 'quinta',
+              pollOptions: JSON.stringify(['19h00 - INTERMEDIÁRIO ⚡', '20h00 - INICIANTES ⚡', '21h00 - AVANÇADO ⚡']),
+              scheduleHour: 13,
+              scheduleMinute: 0,
+              scheduleDays: JSON.stringify([4]), // quinta
+            },
+            // BANGU - Quinta 21h (para sexta)
+            {
+              name: 'Bangu - Sexta (quinta 21h)',
+              description: 'Enquete de sexta enviada na quinta à noite',
+              targetGroup: 'bangu',
+              dayOfWeek: 'sexta',
+              pollOptions: JSON.stringify(['07h00 - LIVRE ⚡', '08h00 - LIVRE ⚡', '09h00 - INICIANTES ⚡', '17h00 - AVANÇADO ⚡', '18h00 - INTERMEDIÁRIO ⚡', '19h00 - INICIANTES ⚡', '20h00 - LIVRE ⚡']),
+              scheduleHour: 21,
+              scheduleMinute: 0,
+              scheduleDays: JSON.stringify([4]), // quinta
+            },
+          ];
+
+          const stmt = db.prepare(`
+            INSERT INTO poll_schedules (name, description, target_group, day_of_week, poll_options, schedule_hour, schedule_minute, schedule_days)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+
+          for (const schedule of defaultSchedules) {
+            stmt.run(
+              schedule.name,
+              schedule.description,
+              schedule.targetGroup,
+              schedule.dayOfWeek,
+              schedule.pollOptions,
+              schedule.scheduleHour,
+              schedule.scheduleMinute,
+              schedule.scheduleDays
+            );
           }
         },
       },
@@ -1148,6 +1307,176 @@ class SQLiteService {
       dayOfWeek: row.dayOfWeek,
       names: JSON.parse(row.names || '[]'),
       isActive: row.isActive === 1,
+    };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE AGENDAMENTOS DE ENQUETES
+  // ===========================================================================
+
+  getPollSchedules(): PollScheduleRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, description, target_group as targetGroup, custom_group_id as customGroupId,
+             day_of_week as dayOfWeek, poll_options as pollOptions, schedule_hour as scheduleHour,
+             schedule_minute as scheduleMinute, schedule_days as scheduleDays, is_active as isActive,
+             last_executed_at as lastExecutedAt, created_at as createdAt, updated_at as updatedAt
+      FROM poll_schedules
+      ORDER BY schedule_hour, schedule_minute
+    `);
+
+    const rows = stmt.all() as PollScheduleRecordRaw[];
+    return rows.map(this.parsePollScheduleRow);
+  }
+
+  getActivePollSchedules(): PollScheduleRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, description, target_group as targetGroup, custom_group_id as customGroupId,
+             day_of_week as dayOfWeek, poll_options as pollOptions, schedule_hour as scheduleHour,
+             schedule_minute as scheduleMinute, schedule_days as scheduleDays, is_active as isActive,
+             last_executed_at as lastExecutedAt, created_at as createdAt, updated_at as updatedAt
+      FROM poll_schedules
+      WHERE is_active = 1
+      ORDER BY schedule_hour, schedule_minute
+    `);
+
+    const rows = stmt.all() as PollScheduleRecordRaw[];
+    return rows.map(this.parsePollScheduleRow);
+  }
+
+  getPollScheduleById(id: number): PollScheduleRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, description, target_group as targetGroup, custom_group_id as customGroupId,
+             day_of_week as dayOfWeek, poll_options as pollOptions, schedule_hour as scheduleHour,
+             schedule_minute as scheduleMinute, schedule_days as scheduleDays, is_active as isActive,
+             last_executed_at as lastExecutedAt, created_at as createdAt, updated_at as updatedAt
+      FROM poll_schedules
+      WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as PollScheduleRecordRaw | undefined;
+    return row ? this.parsePollScheduleRow(row) : null;
+  }
+
+  createPollSchedule(schedule: Omit<PollScheduleRecord, 'id' | 'createdAt' | 'updatedAt' | 'lastExecutedAt'>): PollScheduleRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO poll_schedules (name, description, target_group, custom_group_id, day_of_week,
+                                   poll_options, schedule_hour, schedule_minute, schedule_days,
+                                   is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        schedule.name,
+        schedule.description ?? null,
+        schedule.targetGroup,
+        schedule.customGroupId ?? null,
+        schedule.dayOfWeek,
+        JSON.stringify(schedule.pollOptions),
+        schedule.scheduleHour,
+        schedule.scheduleMinute,
+        JSON.stringify(schedule.scheduleDays),
+        schedule.isActive ? 1 : 0,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...schedule,
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar agendamento de enquete', error);
+      return null;
+    }
+  }
+
+  updatePollSchedule(id: number, schedule: Partial<Omit<PollScheduleRecord, 'id' | 'createdAt' | 'updatedAt'>>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if (schedule.name !== undefined) { updates.push('name = ?'); values.push(schedule.name); }
+      if (schedule.description !== undefined) { updates.push('description = ?'); values.push(schedule.description); }
+      if (schedule.targetGroup !== undefined) { updates.push('target_group = ?'); values.push(schedule.targetGroup); }
+      if (schedule.customGroupId !== undefined) { updates.push('custom_group_id = ?'); values.push(schedule.customGroupId); }
+      if (schedule.dayOfWeek !== undefined) { updates.push('day_of_week = ?'); values.push(schedule.dayOfWeek); }
+      if (schedule.pollOptions !== undefined) { updates.push('poll_options = ?'); values.push(JSON.stringify(schedule.pollOptions)); }
+      if (schedule.scheduleHour !== undefined) { updates.push('schedule_hour = ?'); values.push(schedule.scheduleHour); }
+      if (schedule.scheduleMinute !== undefined) { updates.push('schedule_minute = ?'); values.push(schedule.scheduleMinute); }
+      if (schedule.scheduleDays !== undefined) { updates.push('schedule_days = ?'); values.push(JSON.stringify(schedule.scheduleDays)); }
+      if (schedule.isActive !== undefined) { updates.push('is_active = ?'); values.push(schedule.isActive ? 1 : 0); }
+      if (schedule.lastExecutedAt !== undefined) { updates.push('last_executed_at = ?'); values.push(schedule.lastExecutedAt); }
+
+      if (updates.length === 0) return false;
+
+      updates.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`UPDATE poll_schedules SET ${updates.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar agendamento de enquete #${id}`, error);
+      return false;
+    }
+  }
+
+  deletePollSchedule(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM poll_schedules WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  togglePollSchedule(id: number, isActive: boolean): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('UPDATE poll_schedules SET is_active = ?, updated_at = ? WHERE id = ?');
+    const result = stmt.run(isActive ? 1 : 0, new Date().toISOString(), id);
+    return result.changes > 0;
+  }
+
+  updatePollScheduleLastExecuted(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('UPDATE poll_schedules SET last_executed_at = ? WHERE id = ?');
+    const result = stmt.run(new Date().toISOString(), id);
+    return result.changes > 0;
+  }
+
+  private parsePollScheduleRow(row: PollScheduleRecordRaw): PollScheduleRecord {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description ?? undefined,
+      targetGroup: row.targetGroup as 'recreio' | 'bangu' | 'custom',
+      customGroupId: row.customGroupId ?? undefined,
+      dayOfWeek: row.dayOfWeek,
+      pollOptions: JSON.parse(row.pollOptions || '[]'),
+      scheduleHour: row.scheduleHour,
+      scheduleMinute: row.scheduleMinute,
+      scheduleDays: JSON.parse(row.scheduleDays || '[]'),
+      isActive: row.isActive === 1,
+      lastExecutedAt: row.lastExecutedAt ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
     };
   }
 

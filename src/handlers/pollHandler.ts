@@ -2,6 +2,8 @@ import schedule from 'node-schedule';
 import type { WhatsAppSocket } from '../types/index.js';
 import CONFIG from '../config/index.js';
 import logger from '../utils/logger.js';
+import sqliteService from '../database/sqlite.js';
+import type { PollScheduleRecord } from '../database/sqlite.js';
 
 // Importar whatsappService para sempre ter o socket atual
 import whatsappService from '../services/whatsapp.js';
@@ -315,130 +317,136 @@ class PollHandler {
   }
 
   /**
-   * Agenda as enquetes automáticas
+   * Obtém o grupo de destino com base na configuração
+   */
+  private getGroupId(targetGroup: string, customGroupId?: string): string | undefined {
+    if (targetGroup === 'recreio') {
+      return CONFIG.gruposWhatsApp.recreio;
+    } else if (targetGroup === 'bangu') {
+      return CONFIG.gruposWhatsApp.bangu;
+    } else if (targetGroup === 'custom' && customGroupId) {
+      return customGroupId;
+    }
+    return undefined;
+  }
+
+  /**
+   * Obtém o nome da enquete para o dia especificado
+   */
+  private getPollNameForDay(dayOfWeek: string): string {
+    // Se for 'auto', usa o dia atual
+    if (dayOfWeek === 'auto') {
+      const day = new Date().getDay();
+      const dayNames = ['', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+      const dayName = dayNames[day] ?? 'segunda';
+      return this.getEnqueteName(dayName);
+    }
+    return this.getEnqueteName(dayOfWeek);
+  }
+
+  /**
+   * Executa uma enquete de um agendamento específico
+   */
+  async executeScheduleById(scheduleId: number): Promise<boolean> {
+    const pollSchedule = sqliteService.getPollScheduleById(scheduleId);
+    if (!pollSchedule) {
+      logger.error(`[POLL] Agendamento #${scheduleId} não encontrado`);
+      return false;
+    }
+
+    const groupId = this.getGroupId(pollSchedule.targetGroup, pollSchedule.customGroupId);
+    if (!groupId) {
+      logger.error(`[POLL] Grupo não configurado para agendamento #${scheduleId}`);
+      return false;
+    }
+
+    const pollName = this.getPollNameForDay(pollSchedule.dayOfWeek);
+
+    logger.info(`[POLL] Executando agendamento #${scheduleId}: ${pollSchedule.name}`);
+
+    const success = await this.createPoll(groupId, pollName, pollSchedule.pollOptions);
+
+    if (success) {
+      sqliteService.updatePollScheduleLastExecuted(scheduleId);
+    }
+
+    return success;
+  }
+
+  /**
+   * Cria cron expression a partir dos dados do agendamento
+   */
+  private buildCronExpression(schedule: PollScheduleRecord): string {
+    const { scheduleHour, scheduleMinute, scheduleDays } = schedule;
+
+    // Se não tem dias configurados, não agenda
+    if (!scheduleDays || scheduleDays.length === 0) {
+      return '';
+    }
+
+    // Formato: minuto hora * * diasDaSemana
+    const daysStr = scheduleDays.join(',');
+    return `${scheduleMinute} ${scheduleHour} * * ${daysStr}`;
+  }
+
+  /**
+   * Agenda as enquetes automáticas a partir do banco de dados
    */
   schedulePolls(_sock: WhatsAppSocket): void {
-    logger.info(`📅 Configurando enquetes automáticas...`);
+    logger.info(`📅 Configurando enquetes automáticas do banco de dados...`);
     logger.info(`Grupo Recreio: ${CONFIG.gruposWhatsApp.recreio}`);
     logger.info(`Grupo Bangu: ${CONFIG.gruposWhatsApp.bangu}`);
 
-    // ========================================
-    // RECREIO - Segunda a Sexta às 8h
-    // ========================================
-    schedule.scheduleJob('0 8 * * 1-5', async () => {
-      const day = new Date().getDay();
-      const dayNames = ['', 'segunda', 'terca', 'quarta', 'quinta', 'sexta'];
-      const dayName = dayNames[day] ?? 'segunda';
-      const enqueteName = this.getEnqueteName(dayName);
+    // Cancelar todos os jobs existentes
+    for (const jobName of Object.keys(schedule.scheduledJobs)) {
+      schedule.cancelJob(jobName);
+    }
 
-      await this.executeScheduledPoll(
-        'Executando enquete automática Recreio (8h)',
-        CONFIG.gruposWhatsApp.recreio,
-        enqueteName,
-        ['17:30 ⚡', '18:30 ⚡', '19:30 ⚡']
-      );
-    });
+    // Buscar agendamentos ativos do banco
+    const pollSchedules = sqliteService.getActivePollSchedules();
 
-    // Recreio - Sexta 20h (para sábado)
-    schedule.scheduleJob('0 20 * * 5', async () => {
-      const enqueteName = this.getEnqueteName('sabado');
-      await this.executeScheduledPoll(
-        'Executando enquete automática Recreio Sábado (20h sexta)',
-        CONFIG.gruposWhatsApp.recreio,
-        enqueteName,
-        ['Treino ⚡', 'Treino + Joguinho ⚡']
-      );
-    });
+    if (pollSchedules.length === 0) {
+      logger.warn('[POLL] Nenhum agendamento de enquete ativo encontrado');
+      return;
+    }
 
-    // ========================================
-    // BANGU - Horários específicos por dia
-    // ========================================
+    logger.info(`[POLL] Encontrados ${pollSchedules.length} agendamentos ativos`);
 
-    // Bangu - Domingo 21h (para segunda)
-    schedule.scheduleJob('0 21 * * 0', async () => {
-      const enqueteName = this.getEnqueteName('segunda');
-      await this.executeScheduledPoll(
-        'Executando enquete automática Bangu Segunda (21h domingo)',
-        CONFIG.gruposWhatsApp.bangu,
-        enqueteName,
-        [
-          '07h00 - LIVRE ⚡',
-          '08h00 - LIVRE ⚡',
-          '09h00 - INICIANTES ⚡',
-          '17h00 - AVANÇADO ⚡',
-          '18h00 - INTERMEDIÁRIO ⚡',
-          '19h00 - INICIANTES ⚡',
-          '20h00 - LIVRE ⚡',
-        ]
-      );
-    });
+    for (const pollSchedule of pollSchedules) {
+      const cronExpression = this.buildCronExpression(pollSchedule);
 
-    // Bangu - Terça 13h (para terça - MESMO DIA)
-    schedule.scheduleJob('0 13 * * 2', async () => {
-      const enqueteName = this.getEnqueteName('terca');
-      await this.executeScheduledPoll(
-        'Executando enquete automática Bangu Terça (13h)',
-        CONFIG.gruposWhatsApp.bangu,
-        enqueteName,
-        [
-          '19h00 - INTERMEDIÁRIO ⚡',
-          '20h00 - INICIANTES ⚡',
-          '21h00 - AVANÇADO ⚡',
-        ]
-      );
-    });
+      if (!cronExpression) {
+        logger.warn(`[POLL] Agendamento #${pollSchedule.id} sem dias configurados, ignorando`);
+        continue;
+      }
 
-    // Bangu - Terça 21h (para quarta)
-    schedule.scheduleJob('0 21 * * 2', async () => {
-      const enqueteName = this.getEnqueteName('quarta');
-      await this.executeScheduledPoll(
-        'Executando enquete automática Bangu Quarta (21h terça)',
-        CONFIG.gruposWhatsApp.bangu,
-        enqueteName,
-        [
-          '07h00 - LIVRE ⚡',
-          '08h00 - LIVRE ⚡',
-          '09h00 - INICIANTES ⚡',
-          '17h00 - AVANÇADO ⚡',
-          '18h00 - INTERMEDIÁRIO ⚡',
-          '19h00 - INICIANTES ⚡',
-        ]
-      );
-    });
+      const jobName = `poll_schedule_${pollSchedule.id}`;
 
-    // Bangu - Quinta 13h (para quinta - MESMO DIA)
-    schedule.scheduleJob('0 13 * * 4', async () => {
-      const enqueteName = this.getEnqueteName('quinta');
-      await this.executeScheduledPoll(
-        'Executando enquete automática Bangu Quinta (13h)',
-        CONFIG.gruposWhatsApp.bangu,
-        enqueteName,
-        [
-          '19h00 - INTERMEDIÁRIO ⚡',
-          '20h00 - INICIANTES ⚡',
-          '21h00 - AVANÇADO ⚡',
-        ]
-      );
-    });
+      schedule.scheduleJob(jobName, cronExpression, async () => {
+        const groupId = this.getGroupId(pollSchedule.targetGroup, pollSchedule.customGroupId);
 
-    // Bangu - Quinta 21h (para sexta)
-    schedule.scheduleJob('0 21 * * 4', async () => {
-      const enqueteName = this.getEnqueteName('sexta');
-      await this.executeScheduledPoll(
-        'Executando enquete automática Bangu Sexta (21h quinta)',
-        CONFIG.gruposWhatsApp.bangu,
-        enqueteName,
-        [
-          '07h00 - LIVRE ⚡',
-          '08h00 - LIVRE ⚡',
-          '09h00 - INICIANTES ⚡',
-          '17h00 - AVANÇADO ⚡',
-          '18h00 - INTERMEDIÁRIO ⚡',
-          '19h00 - INICIANTES ⚡',
-          '20h00 - LIVRE ⚡',
-        ]
-      );
-    });
+        if (!groupId) {
+          logger.warn(`[POLL] Grupo não configurado para: ${pollSchedule.name}`);
+          return;
+        }
+
+        const pollName = this.getPollNameForDay(pollSchedule.dayOfWeek);
+
+        await this.executeScheduledPoll(
+          `Executando enquete automática: ${pollSchedule.name}`,
+          groupId,
+          pollName,
+          pollSchedule.pollOptions
+        );
+
+        // Atualizar última execução
+        if (pollSchedule.id) {
+          sqliteService.updatePollScheduleLastExecuted(pollSchedule.id);
+        }
+      });
+
+      logger.info(`[POLL] Agendado: ${pollSchedule.name} (${cronExpression})`);
+    }
 
     logger.info('📅 Enquetes automáticas agendadas!');
 
@@ -450,6 +458,32 @@ class PollHandler {
         logger.info(`Próxima execução de ${name}: ${next.toLocaleString('pt-BR')}`);
       }
     }
+  }
+
+  /**
+   * Reagenda todas as enquetes (útil após alterações no dashboard)
+   */
+  reschedulePolls(): void {
+    logger.info('[POLL] Reagendando enquetes...');
+    this.schedulePolls(null as unknown as WhatsAppSocket);
+  }
+
+  /**
+   * Retorna informações sobre os jobs agendados
+   */
+  getScheduledJobs(): Array<{ name: string; nextExecution: string | null }> {
+    const jobs = schedule.scheduledJobs;
+    const result: Array<{ name: string; nextExecution: string | null }> = [];
+
+    for (const [name, job] of Object.entries(jobs)) {
+      const next = job.nextInvocation();
+      result.push({
+        name,
+        nextExecution: next ? next.toISOString() : null,
+      });
+    }
+
+    return result;
   }
 }
 

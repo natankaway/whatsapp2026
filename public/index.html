@@ -1409,60 +1409,115 @@
       <!-- Polls Tab -->
       <div id="pollsTab" class="section" style="display: none;">
         <div class="section-header">
-          <h2 class="section-title">Gerenciar Enquetes</h2>
-          <button onclick="showCreatePollModal()" style="padding: 8px 16px; background: var(--primary); border: none; color: #fff; border-radius: 6px; cursor: pointer;">+ Nova Enquete</button>
+          <h2 class="section-title">Enquetes Automaticas</h2>
+          <button onclick="showCreateScheduleModal()" class="btn" style="width: auto; padding: 10px 20px;">+ Novo Agendamento</button>
         </div>
 
         <!-- Sub-tabs for polls -->
         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-          <button class="poll-subtab active" onclick="showPollSubtab('templates')">Templates</button>
+          <button class="poll-subtab active" onclick="showPollSubtab('schedules')">Agendamentos</button>
           <button class="poll-subtab" onclick="showPollSubtab('names')">Nomes por Dia</button>
         </div>
 
-        <!-- Poll Templates -->
-        <div id="pollTemplatesContent" class="loading">Carregando...</div>
+        <!-- Info Box -->
+        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid var(--info); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+          <strong style="color: var(--info);">Como funciona:</strong>
+          <ul style="margin-top: 10px; padding-left: 20px; color: var(--text-muted); font-size: 13px;">
+            <li>As enquetes sao enviadas automaticamente nos horarios programados.</li>
+            <li>Voce pode ativar/desativar cada agendamento individualmente.</li>
+            <li>Clique em "Executar Agora" para enviar uma enquete imediatamente.</li>
+            <li>O nome da enquete e escolhido automaticamente baseado no dia configurado.</li>
+          </ul>
+        </div>
+
+        <!-- Poll Schedules -->
+        <div id="pollSchedulesContent" class="loading">Carregando...</div>
 
         <!-- Poll Names -->
         <div id="pollNamesContent" style="display: none;">
-          <p style="color: var(--text-muted); margin-bottom: 15px;">Configure os nomes que serão usados nas enquetes de cada dia da semana.</p>
+          <p style="color: var(--text-muted); margin-bottom: 15px;">Configure os nomes que serao usados nas enquetes de cada dia da semana. O bot escolhe aleatoriamente entre os nomes configurados.</p>
           <div id="pollNamesList"></div>
         </div>
 
-        <!-- Create/Edit Poll Modal -->
-        <div id="pollModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; overflow-y: auto;">
-          <div style="max-width: 600px; margin: 50px auto; background: var(--bg-card); border-radius: 12px; padding: 30px;">
-            <h3 id="pollModalTitle" style="margin-bottom: 20px;">Nova Enquete</h3>
-            <form id="pollForm">
-              <input type="hidden" id="pollId">
+        <!-- Create/Edit Schedule Modal -->
+        <div id="scheduleModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 1000; overflow-y: auto;">
+          <div style="max-width: 650px; margin: 40px auto; background: var(--bg-card-solid); border-radius: var(--radius-lg); padding: 30px; border: 1px solid var(--border-glass);">
+            <h3 id="scheduleModalTitle" style="margin-bottom: 24px; font-size: 20px;">Novo Agendamento</h3>
+            <form id="scheduleForm">
+              <input type="hidden" id="scheduleId">
 
               <div class="form-group">
-                <label>Nome/Titulo da Enquete</label>
-                <input type="text" id="pollName" required placeholder="Ex: Treino de Segunda">
+                <label>Nome do Agendamento</label>
+                <input type="text" id="scheduleName" required placeholder="Ex: Recreio - Segunda a Sexta 8h">
               </div>
 
               <div class="form-group">
-                <label>Grupo de Destino</label>
-                <select id="pollTargetGroup" style="width: 100%; padding: 12px 16px; border: 2px solid #333; border-radius: 8px; background: var(--bg-dark); color: var(--text); font-size: 16px;">
-                  <option value="recreio">Recreio</option>
-                  <option value="bangu">Bangu</option>
-                  <option value="custom">Outro (ID personalizado)</option>
-                </select>
+                <label>Descricao (opcional)</label>
+                <input type="text" id="scheduleDescription" placeholder="Ex: Enquete diaria do Recreio">
               </div>
 
-              <div class="form-group" id="customGroupField" style="display: none;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                  <label>Grupo de Destino</label>
+                  <select id="scheduleTargetGroup" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text); font-size: 15px;">
+                    <option value="recreio">Recreio</option>
+                    <option value="bangu">Bangu</option>
+                    <option value="custom">Outro (ID personalizado)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label>Dia p/ Nome da Enquete</label>
+                  <select id="scheduleDayOfWeek" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text); font-size: 15px;">
+                    <option value="auto">Automatico (dia atual)</option>
+                    <option value="segunda">Segunda</option>
+                    <option value="terca">Terca</option>
+                    <option value="quarta">Quarta</option>
+                    <option value="quinta">Quinta</option>
+                    <option value="sexta">Sexta</option>
+                    <option value="sabado">Sabado</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group" id="scheduleCustomGroupField" style="display: none;">
                 <label>ID do Grupo WhatsApp</label>
-                <input type="text" id="pollCustomGroupId" placeholder="Ex: 120363208643524067@g.us">
+                <input type="text" id="scheduleCustomGroupId" placeholder="Ex: 120363208643524067@g.us">
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                  <label>Hora</label>
+                  <input type="number" id="scheduleHour" min="0" max="23" value="8" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text); font-size: 15px;">
+                </div>
+                <div class="form-group">
+                  <label>Minuto</label>
+                  <input type="number" id="scheduleMinute" min="0" max="59" value="0" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text); font-size: 15px;">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label style="margin-bottom: 12px; display: block;">Dias da Semana</label>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                  <label class="day-checkbox"><input type="checkbox" value="0" id="schedDay0"> Dom</label>
+                  <label class="day-checkbox"><input type="checkbox" value="1" id="schedDay1" checked> Seg</label>
+                  <label class="day-checkbox"><input type="checkbox" value="2" id="schedDay2" checked> Ter</label>
+                  <label class="day-checkbox"><input type="checkbox" value="3" id="schedDay3" checked> Qua</label>
+                  <label class="day-checkbox"><input type="checkbox" value="4" id="schedDay4" checked> Qui</label>
+                  <label class="day-checkbox"><input type="checkbox" value="5" id="schedDay5" checked> Sex</label>
+                  <label class="day-checkbox"><input type="checkbox" value="6" id="schedDay6"> Sab</label>
+                </div>
               </div>
 
               <div class="form-group">
                 <label>Opcoes da Enquete</label>
-                <div id="pollOptionsList"></div>
-                <button type="button" onclick="addPollOption()" style="margin-top: 10px; padding: 8px 16px; background: var(--bg-dark); border: 1px solid var(--primary); color: var(--primary); border-radius: 6px; cursor: pointer;">+ Adicionar Opcao</button>
+                <div id="scheduleOptionsList"></div>
+                <button type="button" onclick="addScheduleOption()" style="margin-top: 10px; padding: 8px 16px; background: transparent; border: 1px solid var(--primary); color: var(--primary); border-radius: 6px; cursor: pointer; transition: all 0.3s;">+ Adicionar Opcao</button>
               </div>
 
-              <div style="display: flex; gap: 10px; margin-top: 30px;">
-                <button type="submit" class="btn" style="flex: 1;">Salvar</button>
-                <button type="button" onclick="closePollModal()" style="flex: 1; padding: 14px; border: 2px solid #666; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;">Cancelar</button>
+              <div style="display: flex; gap: 12px; margin-top: 30px;">
+                <button type="submit" class="btn" style="flex: 1;">Salvar Agendamento</button>
+                <button type="button" onclick="closeScheduleModal()" style="flex: 1; padding: 14px; border: 2px solid var(--text-muted); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; transition: all 0.3s;">Cancelar</button>
               </div>
             </form>
           </div>
@@ -2192,58 +2247,78 @@
     }
 
     // =========================================================================
-    // POLLS MANAGEMENT
+    // POLL SCHEDULES MANAGEMENT
     // =========================================================================
 
-    let currentPolls = [];
+    let currentSchedules = [];
     let currentPollNames = [];
 
-    async function loadPolls() {
+    const dayLabels = {
+      'auto': 'Automatico',
+      'segunda': 'Segunda-feira',
+      'terca': 'Terca-feira',
+      'quarta': 'Quarta-feira',
+      'quinta': 'Quinta-feira',
+      'sexta': 'Sexta-feira',
+      'sabado': 'Sabado'
+    };
+
+    const dayShortLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+
+    async function loadPollSchedules() {
       try {
-        const data = await fetchApi('/polls');
-        currentPolls = data.polls;
+        const data = await fetchApi('/poll-schedules');
+        currentSchedules = data.schedules;
 
-        const content = document.getElementById('pollTemplatesContent');
+        const content = document.getElementById('pollSchedulesContent');
 
-        if (data.polls.length === 0) {
+        if (data.schedules.length === 0) {
           content.innerHTML = `
             <p style="color: var(--text-muted); text-align: center; padding: 40px;">
-              Nenhuma enquete cadastrada.<br>
-              Clique em "+ Nova Enquete" para criar uma.
+              Nenhum agendamento configurado.<br>
+              Clique em "+ Novo Agendamento" para criar um.
             </p>
           `;
           return;
         }
 
-        content.innerHTML = `
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>Grupo</th>
-                <th>Opcoes</th>
-                <th>Acoes</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.polls.map(poll => `
-                <tr>
-                  <td><strong>${poll.name}</strong></td>
-                  <td><span class="badge badge-info">${poll.targetGroup}</span></td>
-                  <td>${poll.options.slice(0, 3).join(', ')}${poll.options.length > 3 ? '...' : ''}</td>
-                  <td>
-                    <button class="send-btn" onclick="sendPoll(${poll.id})">Enviar</button>
-                    <button class="edit-btn" onclick="editPoll(${poll.id})">Editar</button>
-                    <button class="delete-btn" onclick="deletePoll(${poll.id})">Excluir</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        `;
+        content.innerHTML = data.schedules.map(schedule => `
+          <div class="card" style="margin-bottom: 16px; border-left: 4px solid ${schedule.isActive ? 'var(--success)' : 'var(--text-muted)'};">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 15px;">
+              <div style="flex: 1; min-width: 250px;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                  <h4 style="margin: 0; color: ${schedule.isActive ? 'var(--text)' : 'var(--text-muted)'};">${schedule.name}</h4>
+                  <span class="badge ${schedule.isActive ? 'badge-success' : 'badge-warning'}">${schedule.isActive ? 'Ativo' : 'Inativo'}</span>
+                </div>
+                ${schedule.description ? `<p style="color: var(--text-muted); font-size: 13px; margin-bottom: 8px;">${schedule.description}</p>` : ''}
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+                  <span class="badge badge-info">${schedule.targetGroup}</span>
+                  <span class="badge" style="background: var(--secondary); color: #fff;">${String(schedule.scheduleHour).padStart(2, '0')}:${String(schedule.scheduleMinute).padStart(2, '0')}</span>
+                  <span class="badge" style="background: var(--bg-dark); border: 1px solid var(--border-glass);">${schedule.scheduleDays.map(d => dayShortLabels[d]).join(', ')}</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  <strong>Opcoes:</strong> ${schedule.pollOptions.slice(0, 3).join(' | ')}${schedule.pollOptions.length > 3 ? ' ...' : ''}
+                </div>
+                ${schedule.lastExecutedAt ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">Ultima execucao: ${new Date(schedule.lastExecutedAt).toLocaleString('pt-BR')}</div>` : ''}
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; gap: 8px;">
+                  <button onclick="executeSchedule(${schedule.id})" class="send-btn" style="font-size: 12px; padding: 6px 12px;">Executar Agora</button>
+                  <button onclick="editSchedule(${schedule.id})" class="edit-btn" style="font-size: 12px; padding: 6px 12px;">Editar</button>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button onclick="toggleSchedule(${schedule.id}, ${!schedule.isActive})" style="font-size: 12px; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; background: ${schedule.isActive ? 'var(--warning)' : 'var(--success)'}; color: ${schedule.isActive ? '#000' : '#fff'};">
+                    ${schedule.isActive ? 'Desativar' : 'Ativar'}
+                  </button>
+                  <button onclick="deleteSchedule(${schedule.id})" class="delete-btn" style="font-size: 12px; padding: 6px 12px;">Excluir</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `).join('');
       } catch (error) {
-        console.error('Error loading polls:', error);
-        document.getElementById('pollTemplatesContent').innerHTML = '<p style="color: var(--danger);">Erro ao carregar enquetes</p>';
+        console.error('Error loading poll schedules:', error);
+        document.getElementById('pollSchedulesContent').innerHTML = '<p style="color: var(--danger);">Erro ao carregar agendamentos</p>';
       }
     }
 
@@ -2251,15 +2326,6 @@
       try {
         const data = await fetchApi('/poll-names');
         currentPollNames = data.names;
-
-        const dayLabels = {
-          'segunda': 'Segunda-feira',
-          'terca': 'Terca-feira',
-          'quarta': 'Quarta-feira',
-          'quinta': 'Quinta-feira',
-          'sexta': 'Sexta-feira',
-          'sabado': 'Sabado'
-        };
 
         const content = document.getElementById('pollNamesList');
         content.innerHTML = data.names.map(item => `
@@ -2282,96 +2348,133 @@
       document.querySelectorAll('.poll-subtab').forEach(el => el.classList.remove('active'));
       event.target.classList.add('active');
 
-      if (tab === 'templates') {
-        document.getElementById('pollTemplatesContent').style.display = 'block';
+      if (tab === 'schedules') {
+        document.getElementById('pollSchedulesContent').style.display = 'block';
         document.getElementById('pollNamesContent').style.display = 'none';
+        loadPollSchedules();
       } else {
-        document.getElementById('pollTemplatesContent').style.display = 'none';
+        document.getElementById('pollSchedulesContent').style.display = 'none';
         document.getElementById('pollNamesContent').style.display = 'block';
         loadPollNames();
       }
     }
 
-    function showCreatePollModal() {
-      document.getElementById('pollModalTitle').textContent = 'Nova Enquete';
-      document.getElementById('pollId').value = '';
-      document.getElementById('pollName').value = '';
-      document.getElementById('pollTargetGroup').value = 'recreio';
-      document.getElementById('pollCustomGroupId').value = '';
-      document.getElementById('customGroupField').style.display = 'none';
+    function showCreateScheduleModal() {
+      document.getElementById('scheduleModalTitle').textContent = 'Novo Agendamento';
+      document.getElementById('scheduleId').value = '';
+      document.getElementById('scheduleName').value = '';
+      document.getElementById('scheduleDescription').value = '';
+      document.getElementById('scheduleTargetGroup').value = 'recreio';
+      document.getElementById('scheduleDayOfWeek').value = 'auto';
+      document.getElementById('scheduleCustomGroupId').value = '';
+      document.getElementById('scheduleCustomGroupField').style.display = 'none';
+      document.getElementById('scheduleHour').value = 8;
+      document.getElementById('scheduleMinute').value = 0;
+
+      // Reset day checkboxes
+      for (let i = 0; i <= 6; i++) {
+        document.getElementById('schedDay' + i).checked = (i >= 1 && i <= 5);
+      }
 
       // Clear options and add 3 empty ones
-      const list = document.getElementById('pollOptionsList');
+      const list = document.getElementById('scheduleOptionsList');
       list.innerHTML = '';
-      addPollOption('');
-      addPollOption('');
-      addPollOption('');
+      addScheduleOption('17:30');
+      addScheduleOption('18:30');
+      addScheduleOption('19:30');
 
-      document.getElementById('pollModal').style.display = 'block';
+      document.getElementById('scheduleModal').style.display = 'block';
     }
 
-    function editPoll(id) {
-      const poll = currentPolls.find(p => p.id === id);
-      if (!poll) return;
+    function editSchedule(id) {
+      const schedule = currentSchedules.find(s => s.id === id);
+      if (!schedule) return;
 
-      document.getElementById('pollModalTitle').textContent = 'Editar Enquete';
-      document.getElementById('pollId').value = poll.id;
-      document.getElementById('pollName').value = poll.name;
-      document.getElementById('pollTargetGroup').value = poll.targetGroup;
-      document.getElementById('pollCustomGroupId').value = poll.customGroupId || '';
-      document.getElementById('customGroupField').style.display = poll.targetGroup === 'custom' ? 'block' : 'none';
+      document.getElementById('scheduleModalTitle').textContent = 'Editar Agendamento';
+      document.getElementById('scheduleId').value = schedule.id;
+      document.getElementById('scheduleName').value = schedule.name;
+      document.getElementById('scheduleDescription').value = schedule.description || '';
+      document.getElementById('scheduleTargetGroup').value = schedule.targetGroup;
+      document.getElementById('scheduleDayOfWeek').value = schedule.dayOfWeek;
+      document.getElementById('scheduleCustomGroupId').value = schedule.customGroupId || '';
+      document.getElementById('scheduleCustomGroupField').style.display = schedule.targetGroup === 'custom' ? 'block' : 'none';
+      document.getElementById('scheduleHour').value = schedule.scheduleHour;
+      document.getElementById('scheduleMinute').value = schedule.scheduleMinute;
 
-      const list = document.getElementById('pollOptionsList');
+      // Set day checkboxes
+      for (let i = 0; i <= 6; i++) {
+        document.getElementById('schedDay' + i).checked = schedule.scheduleDays.includes(i);
+      }
+
+      // Set options
+      const list = document.getElementById('scheduleOptionsList');
       list.innerHTML = '';
-      poll.options.forEach(opt => addPollOption(opt));
+      schedule.pollOptions.forEach(opt => addScheduleOption(opt));
 
-      document.getElementById('pollModal').style.display = 'block';
+      document.getElementById('scheduleModal').style.display = 'block';
     }
 
-    function closePollModal() {
-      document.getElementById('pollModal').style.display = 'none';
+    function closeScheduleModal() {
+      document.getElementById('scheduleModal').style.display = 'none';
     }
 
-    function addPollOption(value = '') {
-      const list = document.getElementById('pollOptionsList');
+    function addScheduleOption(value = '') {
+      const list = document.getElementById('scheduleOptionsList');
       const div = document.createElement('div');
       div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
       div.innerHTML = `
-        <input type="text" class="poll-option" value="${value}" placeholder="Opcao da enquete" style="flex: 1; padding: 10px; border: 2px solid #333; border-radius: 6px; background: var(--bg-dark); color: var(--text);">
-        <button type="button" onclick="this.parentElement.remove()" style="padding: 10px; background: var(--danger); border: none; color: #fff; border-radius: 6px; cursor: pointer;">X</button>
+        <input type="text" class="schedule-option" value="${value}" placeholder="Opcao da enquete" style="flex: 1; padding: 10px; border: 2px solid var(--border-glass); border-radius: 6px; background: var(--bg-dark); color: var(--text);">
+        <button type="button" onclick="this.parentElement.remove()" style="padding: 10px 14px; background: var(--danger); border: none; color: #fff; border-radius: 6px; cursor: pointer; transition: all 0.2s;">X</button>
       `;
       list.appendChild(div);
     }
 
     // Target group change handler
-    document.getElementById('pollTargetGroup').addEventListener('change', function() {
-      document.getElementById('customGroupField').style.display = this.value === 'custom' ? 'block' : 'none';
+    document.getElementById('scheduleTargetGroup').addEventListener('change', function() {
+      document.getElementById('scheduleCustomGroupField').style.display = this.value === 'custom' ? 'block' : 'none';
     });
 
-    // Poll form submit
-    document.getElementById('pollForm').addEventListener('submit', async (e) => {
+    // Schedule form submit
+    document.getElementById('scheduleForm').addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const id = document.getElementById('pollId').value;
-      const options = Array.from(document.querySelectorAll('.poll-option'))
+      const id = document.getElementById('scheduleId').value;
+      const pollOptions = Array.from(document.querySelectorAll('.schedule-option'))
         .map(input => input.value.trim())
         .filter(val => val);
 
-      if (options.length < 2) {
+      if (pollOptions.length < 2) {
         alert('A enquete precisa ter pelo menos 2 opcoes');
         return;
       }
 
+      const scheduleDays = [];
+      for (let i = 0; i <= 6; i++) {
+        if (document.getElementById('schedDay' + i).checked) {
+          scheduleDays.push(i);
+        }
+      }
+
+      if (scheduleDays.length === 0) {
+        alert('Selecione pelo menos um dia da semana');
+        return;
+      }
+
       const data = {
-        name: document.getElementById('pollName').value,
-        targetGroup: document.getElementById('pollTargetGroup').value,
-        customGroupId: document.getElementById('pollCustomGroupId').value || null,
-        options: options,
-        scheduleType: 'manual'
+        name: document.getElementById('scheduleName').value,
+        description: document.getElementById('scheduleDescription').value || null,
+        targetGroup: document.getElementById('scheduleTargetGroup').value,
+        customGroupId: document.getElementById('scheduleCustomGroupId').value || null,
+        dayOfWeek: document.getElementById('scheduleDayOfWeek').value,
+        scheduleHour: parseInt(document.getElementById('scheduleHour').value),
+        scheduleMinute: parseInt(document.getElementById('scheduleMinute').value),
+        scheduleDays: scheduleDays,
+        pollOptions: pollOptions,
+        isActive: true
       };
 
       try {
-        const response = await fetch('/api/polls' + (id ? '/' + id : ''), {
+        const response = await fetch('/api/poll-schedules' + (id ? '/' + id : ''), {
           method: id ? 'PUT' : 'POST',
           headers: {
             'Authorization': authHeader,
@@ -2381,27 +2484,27 @@
         });
 
         if (response.ok) {
-          closePollModal();
-          loadPolls();
-          alert(id ? 'Enquete atualizada!' : 'Enquete criada!');
+          closeScheduleModal();
+          loadPollSchedules();
+          alert(id ? 'Agendamento atualizado!' : 'Agendamento criado!');
         } else {
           const error = await response.json();
           alert('Erro: ' + (error.error || 'Falha ao salvar'));
         }
       } catch (error) {
-        alert('Erro ao salvar enquete');
+        alert('Erro ao salvar agendamento');
       }
     });
 
-    async function sendPoll(id) {
-      if (!confirm('Enviar esta enquete agora?')) return;
+    async function executeSchedule(id) {
+      if (!confirm('Executar esta enquete agora?')) return;
 
       const btn = event.target;
       btn.disabled = true;
       btn.textContent = 'Enviando...';
 
       try {
-        const response = await fetch('/api/polls/' + id + '/send', {
+        const response = await fetch('/api/poll-schedules/' + id + '/execute', {
           method: 'POST',
           headers: { 'Authorization': authHeader }
         });
@@ -2410,6 +2513,7 @@
 
         if (response.ok) {
           alert('Enquete enviada com sucesso!');
+          loadPollSchedules();
         } else {
           alert('Erro: ' + (result.error || 'Falha ao enviar'));
         }
@@ -2417,36 +2521,56 @@
         alert('Erro ao enviar enquete');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Enviar';
+        btn.textContent = 'Executar Agora';
       }
     }
 
-    async function deletePoll(id) {
-      if (!confirm('Tem certeza que deseja excluir esta enquete?')) return;
+    async function toggleSchedule(id, isActive) {
+      try {
+        const response = await fetch('/api/poll-schedules/' + id + '/toggle', {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ isActive })
+        });
+
+        if (response.ok) {
+          loadPollSchedules();
+        } else {
+          const error = await response.json();
+          alert('Erro: ' + (error.error || 'Falha ao alternar'));
+        }
+      } catch (error) {
+        alert('Erro ao alternar agendamento');
+      }
+    }
+
+    async function deleteSchedule(id) {
+      if (!confirm('Tem certeza que deseja excluir este agendamento? Esta acao nao pode ser desfeita.')) return;
 
       try {
-        await fetch('/api/polls/' + id, {
+        const response = await fetch('/api/poll-schedules/' + id, {
           method: 'DELETE',
           headers: { 'Authorization': authHeader }
         });
-        loadPolls();
+
+        if (response.ok) {
+          loadPollSchedules();
+          alert('Agendamento excluido!');
+        } else {
+          const error = await response.json();
+          alert('Erro: ' + (error.error || 'Falha ao excluir'));
+        }
       } catch (error) {
-        alert('Erro ao excluir enquete');
+        alert('Erro ao excluir agendamento');
       }
     }
 
     function editPollNames(day) {
       const item = currentPollNames.find(p => p.dayOfWeek === day);
       if (!item) return;
-
-      const dayLabels = {
-        'segunda': 'Segunda-feira',
-        'terca': 'Terca-feira',
-        'quarta': 'Quarta-feira',
-        'quinta': 'Quinta-feira',
-        'sexta': 'Sexta-feira',
-        'sabado': 'Sabado'
-      };
 
       const newNames = prompt(
         `Editar nomes de ${dayLabels[day]}:\n(separe cada nome por | )`,
@@ -2655,7 +2779,7 @@
           loadTodayBookings(),
           loadWeekBookings(),
           loadUnits(),
-          loadPolls(),
+          loadPollSchedules(),
           loadSettings(),
           loadBookingStats(),
           loadQueues(),

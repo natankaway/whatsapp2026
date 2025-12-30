@@ -947,6 +947,239 @@ export function createDashboardRoutes(): Router {
   });
 
   // ===========================================================================
+  // POLL SCHEDULES (Agendamentos de Enquetes Automáticas)
+  // ===========================================================================
+
+  router.get('/poll-schedules', (_req: Request, res: Response) => {
+    try {
+      const schedules = sqliteService.getPollSchedules();
+      const scheduledJobs = pollHandler.getScheduledJobs();
+
+      res.json({
+        total: schedules.length,
+        activeCount: schedules.filter(s => s.isActive).length,
+        schedules,
+        scheduledJobs,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar agendamentos de enquetes', error);
+      res.status(500).json({ error: 'Erro ao listar agendamentos' });
+    }
+  });
+
+  router.get('/poll-schedules/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const schedule = sqliteService.getPollScheduleById(id);
+      if (!schedule) {
+        res.status(404).json({ error: 'Agendamento não encontrado' });
+        return;
+      }
+
+      res.json(schedule);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar agendamento', error);
+      res.status(500).json({ error: 'Erro ao buscar agendamento' });
+    }
+  });
+
+  router.post('/poll-schedules', (req: Request, res: Response) => {
+    try {
+      const { name, description, targetGroup, customGroupId, dayOfWeek, pollOptions, scheduleHour, scheduleMinute, scheduleDays, isActive } = req.body;
+
+      if (!name || !targetGroup || !dayOfWeek || !pollOptions || !Array.isArray(pollOptions)) {
+        res.status(400).json({ error: 'Campos obrigatórios: name, targetGroup, dayOfWeek, pollOptions (array)' });
+        return;
+      }
+
+      if (!['recreio', 'bangu', 'custom'].includes(targetGroup)) {
+        res.status(400).json({ error: 'targetGroup deve ser: recreio, bangu ou custom' });
+        return;
+      }
+
+      if (targetGroup === 'custom' && !customGroupId) {
+        res.status(400).json({ error: 'customGroupId é obrigatório quando targetGroup é custom' });
+        return;
+      }
+
+      if (scheduleHour === undefined || scheduleHour < 0 || scheduleHour > 23) {
+        res.status(400).json({ error: 'scheduleHour deve ser entre 0 e 23' });
+        return;
+      }
+
+      const schedule = sqliteService.createPollSchedule({
+        name,
+        description,
+        targetGroup,
+        customGroupId,
+        dayOfWeek,
+        pollOptions,
+        scheduleHour,
+        scheduleMinute: scheduleMinute ?? 0,
+        scheduleDays: scheduleDays ?? [],
+        isActive: isActive !== false,
+      });
+
+      if (schedule) {
+        // Reagendar as enquetes para aplicar o novo agendamento
+        pollHandler.reschedulePolls();
+
+        logger.info(`[Dashboard] Agendamento de enquete criado: ${name}`);
+        res.status(201).json(schedule);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar agendamento' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar agendamento', error);
+      res.status(500).json({ error: 'Erro ao criar agendamento' });
+    }
+  });
+
+  router.put('/poll-schedules/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { name, description, targetGroup, customGroupId, dayOfWeek, pollOptions, scheduleHour, scheduleMinute, scheduleDays, isActive } = req.body;
+
+      const updated = sqliteService.updatePollSchedule(id, {
+        name,
+        description,
+        targetGroup,
+        customGroupId,
+        dayOfWeek,
+        pollOptions,
+        scheduleHour,
+        scheduleMinute,
+        scheduleDays,
+        isActive,
+      });
+
+      if (updated) {
+        // Reagendar as enquetes para aplicar as alterações
+        pollHandler.reschedulePolls();
+
+        logger.info(`[Dashboard] Agendamento #${id} atualizado`);
+        const schedule = sqliteService.getPollScheduleById(id);
+        res.json(schedule);
+      } else {
+        res.status(404).json({ error: 'Agendamento não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar agendamento', error);
+      res.status(500).json({ error: 'Erro ao atualizar agendamento' });
+    }
+  });
+
+  router.delete('/poll-schedules/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deletePollSchedule(id);
+
+      if (deleted) {
+        // Reagendar as enquetes para remover o agendamento
+        pollHandler.reschedulePolls();
+
+        logger.info(`[Dashboard] Agendamento #${id} removido`);
+        res.json({ success: true, message: 'Agendamento removido' });
+      } else {
+        res.status(404).json({ error: 'Agendamento não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover agendamento', error);
+      res.status(500).json({ error: 'Erro ao remover agendamento' });
+    }
+  });
+
+  // Ativar/desativar agendamento
+  router.post('/poll-schedules/:id/toggle', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { isActive } = req.body;
+      if (isActive === undefined) {
+        res.status(400).json({ error: 'Campo obrigatório: isActive (boolean)' });
+        return;
+      }
+
+      const toggled = sqliteService.togglePollSchedule(id, isActive);
+
+      if (toggled) {
+        // Reagendar as enquetes para aplicar a alteração
+        pollHandler.reschedulePolls();
+
+        logger.info(`[Dashboard] Agendamento #${id} ${isActive ? 'ativado' : 'desativado'}`);
+        res.json({ success: true, isActive });
+      } else {
+        res.status(404).json({ error: 'Agendamento não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao alternar agendamento', error);
+      res.status(500).json({ error: 'Erro ao alternar agendamento' });
+    }
+  });
+
+  // Executar enquete imediatamente
+  router.post('/poll-schedules/:id/execute', async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      // Verificar se WhatsApp está conectado
+      if (!whatsappService.isConnected()) {
+        res.status(503).json({ error: 'WhatsApp não está conectado' });
+        return;
+      }
+
+      const success = await pollHandler.executeScheduleById(id);
+
+      if (success) {
+        logger.info(`[Dashboard] Agendamento #${id} executado manualmente`);
+        res.json({ success: true, message: 'Enquete enviada com sucesso' });
+      } else {
+        res.status(500).json({ error: 'Falha ao enviar enquete' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao executar agendamento', error);
+      res.status(500).json({ error: 'Erro ao executar agendamento' });
+    }
+  });
+
+  // Reagendar todas as enquetes
+  router.post('/poll-schedules/reschedule', (_req: Request, res: Response) => {
+    try {
+      pollHandler.reschedulePolls();
+      const scheduledJobs = pollHandler.getScheduledJobs();
+
+      logger.info('[Dashboard] Enquetes reagendadas');
+      res.json({ success: true, scheduledJobs });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao reagendar enquetes', error);
+      res.status(500).json({ error: 'Erro ao reagendar enquetes' });
+    }
+  });
+
+  // ===========================================================================
   // SETTINGS (Configurações Gerais)
   // ===========================================================================
 
