@@ -4,6 +4,51 @@ import sessionManager from '../utils/sessionManager.js';
 import { sendText } from '../utils/messageHelpers.js';
 import { bookingHandler } from './bookingHandler.js';
 import pauseManager from '../utils/pauseManager.js';
+import { sqliteService } from '../database/index.js';
+
+// Interface para unidade no formato usado pelo handler
+interface UnidadeConfig {
+  id: number;
+  nome: string;
+  endereco: string;
+  local: string;
+  diasFuncionamento: string;
+  horarios: string[];
+  horariosTexto?: string[];
+  aulaoSabado?: string;
+  precos: {
+    mensalidade: Array<{ frequencia: string; valor: string }>;
+    avulsa: string;
+  };
+  plataformas: string[];
+}
+
+// Função que busca unidades do banco de dados (com fallback para CONFIG)
+function getUnidades(): UnidadeConfig[] {
+  try {
+    const dbUnits = sqliteService.getUnits();
+    if (dbUnits && dbUnits.length > 0) {
+      return dbUnits.map((u, index) => ({
+        id: u.id ?? index + 1,
+        nome: u.name,
+        endereco: u.address,
+        local: u.location,
+        diasFuncionamento: u.workingDays,
+        horarios: u.schedules || [],
+        horariosTexto: u.schedulesText ? u.schedulesText.split('\n') : undefined,
+        aulaoSabado: u.saturdayClass,
+        precos: {
+          mensalidade: u.prices?.mensalidade || [],
+          avulsa: u.prices?.avulsa || 'R$ 30,00',
+        },
+        plataformas: u.platforms || [],
+      }));
+    }
+  } catch {
+    // Fallback silencioso para CONFIG se DB falhar
+  }
+  return CONFIG.unidades;
+}
 
 class MenuHandler {
   async handleMenuOption(
@@ -55,9 +100,10 @@ class MenuHandler {
   }
 
   async sendUnitsMenu(sock: WhatsAppSocket, from: string): Promise<void> {
+    const unidades = getUnidades();
     let message = `⚽ *NOSSAS UNIDADES CT LK FUTEVÔLEI* 🏐\n\n`;
 
-    CONFIG.unidades.forEach((unidade, index) => {
+    unidades.forEach((unidade, index) => {
       message += `${index + 1}️⃣ *${unidade.nome}*\n   📍 ${unidade.local}\n\n`;
     });
 
@@ -72,9 +118,10 @@ class MenuHandler {
     text: string,
     _session: UserSession
   ): Promise<void> {
+    const unidades = getUnidades();
     const unitIndex = parseInt(text) - 1;
 
-    if (unitIndex >= 0 && unitIndex < CONFIG.unidades.length) {
+    if (unitIndex >= 0 && unitIndex < unidades.length) {
       await this.sendUnitDetails(sock, from, unitIndex);
       sessionManager.setState(from, 'menu');
     } else {
@@ -83,7 +130,8 @@ class MenuHandler {
   }
 
   async sendUnitDetails(sock: WhatsAppSocket, from: string, unitIndex: number): Promise<void> {
-    const unidade = CONFIG.unidades[unitIndex];
+    const unidades = getUnidades();
+    const unidade = unidades[unitIndex];
     if (!unidade) return;
 
     let message = `⚽ *${unidade.nome}* 🏐\n\n`;
@@ -110,9 +158,10 @@ class MenuHandler {
   }
 
   async sendAllSchedules(sock: WhatsAppSocket, from: string): Promise<void> {
+    const unidades = getUnidades();
     let message = `⏰ *HORÁRIOS DAS AULAS* ⏰\n`;
 
-    CONFIG.unidades.forEach((unidade) => {
+    unidades.forEach((unidade) => {
       message += `\n📍 *${unidade.nome}*\n`;
       message += `📅 ${unidade.diasFuncionamento}\n`;
       message += `━━━━━━━━━━━━━━━\n`;
@@ -170,7 +219,8 @@ class MenuHandler {
   }
 
   async sendUnitPrices(sock: WhatsAppSocket, from: string, unitIndex: number): Promise<void> {
-    const unidade = CONFIG.unidades[unitIndex];
+    const unidades = getUnidades();
+    const unidade = unidades[unitIndex];
     if (!unidade) return;
 
     let message = `💰 *VALORES - ${unidade.nome}* 💰\n\n`;
@@ -192,9 +242,10 @@ class MenuHandler {
   }
 
   async sendAllPrices(sock: WhatsAppSocket, from: string): Promise<void> {
+    const unidades = getUnidades();
     let message = `💰 *TABELA COMPLETA DE VALORES* 💰\n`;
 
-    CONFIG.unidades.forEach((unidade) => {
+    unidades.forEach((unidade) => {
       message += `\n📍 *${unidade.nome}*\n`;
       message += `━━━━━━━━━━━━━━━\n`;
       unidade.precos.mensalidade.forEach((plano) => {
@@ -232,28 +283,17 @@ class MenuHandler {
   }
 
   async sendLocations(sock: WhatsAppSocket, from: string): Promise<void> {
-    const unidadeRecreio = CONFIG.unidades[0];
-    const unidadeBangu = CONFIG.unidades[1];
+    const unidades = getUnidades();
 
-    if (unidadeRecreio) {
+    for (const unidade of unidades) {
+      const endereco = unidade.endereco.replace(/\s+/g, '+').replace(/,/g, '');
       await sendText(
         sock,
         from,
-        `📍 *LOCALIZAÇÃO - RECREIO* 📍\n\n` +
-          `${unidadeRecreio.endereco}\n\n` +
+        `📍 *LOCALIZAÇÃO - ${unidade.nome.toUpperCase()}* 📍\n\n` +
+          `${unidade.endereco}\n\n` +
           `🗺️ Google Maps:\n` +
-          `https://maps.google.com/?q=Praia+do+Recreio+Posto+11+Hotel+Atlantico+Sul`
-      );
-    }
-
-    if (unidadeBangu) {
-      await sendText(
-        sock,
-        from,
-        `📍 *LOCALIZAÇÃO - BANGU* 📍\n\n` +
-          `${unidadeBangu.endereco}\n\n` +
-          `🗺️ Google Maps:\n` +
-          `https://maps.google.com/?q=Rua+Selene+de+Medeiros+112+Jardim+Bangu`
+          `https://maps.google.com/?q=${endereco}`
       );
     }
 

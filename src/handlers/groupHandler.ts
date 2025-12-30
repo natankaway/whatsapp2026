@@ -3,6 +3,51 @@ import CONFIG from '../config/index.js';
 import { sendText, sendTextWithMentions } from '../utils/messageHelpers.js';
 import logger from '../utils/logger.js';
 import { pollHandler } from './pollHandler.js';
+import { sqliteService } from '../database/index.js';
+
+// Interface para unidade no formato usado pelo handler
+interface UnidadeConfig {
+  id: number;
+  nome: string;
+  endereco: string;
+  local: string;
+  diasFuncionamento: string;
+  horarios: string[];
+  horariosTexto?: string[];
+  aulaoSabado?: string;
+  precos: {
+    mensalidade: Array<{ frequencia: string; valor: string }>;
+    avulsa: string;
+  };
+  plataformas: string[];
+}
+
+// Função que busca unidades do banco de dados (com fallback para CONFIG)
+function getUnidades(): UnidadeConfig[] {
+  try {
+    const dbUnits = sqliteService.getUnits();
+    if (dbUnits && dbUnits.length > 0) {
+      return dbUnits.map((u, index) => ({
+        id: u.id ?? index + 1,
+        nome: u.name,
+        endereco: u.address,
+        local: u.location,
+        diasFuncionamento: u.workingDays,
+        horarios: u.schedules || [],
+        horariosTexto: u.schedulesText ? u.schedulesText.split('\n') : undefined,
+        aulaoSabado: u.saturdayClass,
+        precos: {
+          mensalidade: u.prices?.mensalidade || [],
+          avulsa: u.prices?.avulsa || 'R$ 30,00',
+        },
+        plataformas: u.platforms || [],
+      }));
+    }
+  } catch {
+    // Fallback silencioso para CONFIG se DB falhar
+  }
+  return CONFIG.unidades;
+}
 
 class GroupHandler {
   async handleGroupMessage(
@@ -93,9 +138,10 @@ class GroupHandler {
   }
 
   private async sendUnitsInfo(sock: WhatsAppSocket, from: string): Promise<void> {
+    const unidades = getUnidades();
     let message = `⚽ *NOSSAS UNIDADES* 🏐\n\n`;
 
-    CONFIG.unidades.forEach((unidade) => {
+    unidades.forEach((unidade) => {
       message += `📍 *${unidade.nome}*\n`;
       message += `${unidade.endereco}\n\n`;
     });
@@ -104,9 +150,10 @@ class GroupHandler {
   }
 
   private async sendAllSchedules(sock: WhatsAppSocket, from: string): Promise<void> {
+    const unidades = getUnidades();
     let message = `⏰ *HORÁRIOS DAS AULAS* ⏰\n`;
 
-    CONFIG.unidades.forEach((unidade) => {
+    unidades.forEach((unidade) => {
       message += `\n📍 *${unidade.nome}*\n`;
       message += `━━━━━━━━━━━━━━━\n`;
 
@@ -121,9 +168,10 @@ class GroupHandler {
   }
 
   private async sendAllPrices(sock: WhatsAppSocket, from: string): Promise<void> {
+    const unidades = getUnidades();
     let message = `💰 *VALORES* 💰\n`;
 
-    CONFIG.unidades.forEach((unidade) => {
+    unidades.forEach((unidade) => {
       message += `\n📍 *${unidade.nome}*\n`;
       unidade.precos.mensalidade.forEach((plano) => {
         message += `• ${plano.frequencia}: ${plano.valor}\n`;
@@ -139,7 +187,8 @@ class GroupHandler {
     from: string,
     unitIndex: number
   ): Promise<void> {
-    const unidade = CONFIG.unidades[unitIndex];
+    const unidades = getUnidades();
+    const unidade = unidades[unitIndex];
     if (!unidade) return;
 
     let message = `⚽ *${unidade.nome}* 🏐\n\n`;
