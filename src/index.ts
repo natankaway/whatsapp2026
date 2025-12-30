@@ -118,7 +118,7 @@ async function bootstrap(): Promise<void> {
         await dashboardServer.start();
         logger.info(`📊 [INFRA] Dashboard: http://localhost:${CONFIG.dashboard.port}`);
       } catch (err) {
-        logger.warn(`⚠️ [Dashboard] Falha ao iniciar dashboard - continuando sem ele`);
+        logger.error(`⚠️ [Dashboard] Falha ao iniciar dashboard`, err);
       }
     }
 
