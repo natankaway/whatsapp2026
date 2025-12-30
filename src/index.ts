@@ -89,10 +89,24 @@ async function bootstrap(): Promise<void> {
     // Inicializar métricas
     metricsService.initialize();
 
-    // Inicializar filas (requer Redis)
+    // Inicializar filas (requer Redis 5.0+)
     await queueService.initialize();
+
+    // Aguardar um pouco para erros assíncronos do Redis serem detectados
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     if (queueService.isReady()) {
-      await queueService.setupRecurringJobs();
+      try {
+        // Timeout de 5 segundos para evitar travamento
+        await Promise.race([
+          queueService.setupRecurringJobs(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout')), 5000)
+          )
+        ]);
+      } catch {
+        logger.warn('⚠️ [Queue] Jobs recorrentes não configurados - Redis incompatível');
+      }
     }
 
     // Iniciar servidor de health check
