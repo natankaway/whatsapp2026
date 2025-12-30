@@ -2,6 +2,7 @@ import { Queue, Worker, Job, QueueEvents } from 'bullmq';
 import type { BookingDetails } from '../types/index.js';
 import notificationService from '../services/notification.js';
 import backupService from '../services/backup.js';
+import reminderService from '../services/reminder.js';
 import { sqliteService } from '../database/index.js';
 import logger from '../utils/logger.js';
 
@@ -46,12 +47,17 @@ export interface BackupJob {
 }
 
 export interface CleanupJob {
-  type: 'sessions' | 'bookings' | 'logs';
+  type: 'sessions' | 'bookings' | 'logs' | 'reminders';
   olderThanDays: number;
 }
 
+export interface ReminderJob {
+  action: 'process_pending' | 'send_single';
+  reminderId?: number;
+}
+
 // Union type para referência (usado internamente pelos workers)
-export type JobData = NotificationJob | BackupJob | CleanupJob;
+export type JobData = NotificationJob | BackupJob | CleanupJob | ReminderJob;
 
 // =============================================================================
 // QUEUE SERVICE
@@ -61,10 +67,12 @@ class QueueService {
   private notificationQueue: Queue<NotificationJob> | null = null;
   private backupQueue: Queue<BackupJob> | null = null;
   private cleanupQueue: Queue<CleanupJob> | null = null;
+  private reminderQueue: Queue<ReminderJob> | null = null;
 
   private notificationWorker: Worker<NotificationJob> | null = null;
   private backupWorker: Worker<BackupJob> | null = null;
   private cleanupWorker: Worker<CleanupJob> | null = null;
+  private reminderWorker: Worker<ReminderJob> | null = null;
 
   private queueEvents: QueueEvents | null = null;
   private isInitialized = false;
@@ -104,6 +112,19 @@ class QueueService {
           attempts: 1,
           removeOnComplete: 5,
           removeOnFail: 5,
+        },
+      });
+
+      this.reminderQueue = new Queue<ReminderJob>('reminders', {
+        connection: redisConnection,
+        defaultJobOptions: {
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
+          removeOnComplete: 100,
+          removeOnFail: 50,
         },
       });
 
@@ -179,11 +200,72 @@ class QueueService {
           return { cleaned, type };
         }
 
+        if (type === 'reminders') {
+          const cleaned = await reminderService.cleanupOldReminders(olderThanDays);
+          return { cleaned, type };
+        }
+
         return { cleaned: 0, type };
       },
       {
         connection: redisConnection,
         concurrency: 1,
+      }
+    );
+
+    // Worker de lembretes
+    this.reminderWorker = new Worker<ReminderJob>(
+      'reminders',
+      async (job: Job<ReminderJob>) => {
+        logger.debug(`[Queue] Processando lembrete: ${job.id}`);
+
+        const { action } = job.data;
+
+        if (action === 'process_pending') {
+          // Buscar e processar todos os lembretes pendentes
+          const pendingReminders = await reminderService.getPendingReminders();
+          let sent = 0;
+          let failed = 0;
+
+          for (const reminder of pendingReminders) {
+            try {
+              // Gerar mensagem de lembrete
+              const reminderMessage = reminderService.generateReminderMessage(
+                reminder.type as 'reminder_24h' | 'reminder_2h',
+                reminder.bookingName,
+                reminder.bookingDate,
+                reminder.bookingTime,
+                reminder.bookingUnit
+              );
+
+              // Enviar via WhatsApp se tiver telefone
+              if (reminder.phone) {
+                // TODO: Integrar com whatsappService.sendMessage
+                logger.info(`[Reminder] Enviando lembrete para ${reminder.phone}: ${reminder.type}`, {
+                  message: reminderMessage.substring(0, 50),
+                });
+              }
+
+              await reminderService.markAsSent(reminder.id);
+              sent++;
+            } catch (error) {
+              await reminderService.markAsFailed(reminder.id, (error as Error).message);
+              failed++;
+            }
+          }
+
+          return { processed: pendingReminders.length, sent, failed };
+        }
+
+        return { processed: 0 };
+      },
+      {
+        connection: redisConnection,
+        concurrency: 1,
+        limiter: {
+          max: 5,
+          duration: 1000, // 5 lembretes por segundo
+        },
       }
     );
   }
@@ -254,7 +336,7 @@ class QueueService {
     }
   }
 
-  async scheduleCleanup(type: 'sessions' | 'bookings' | 'logs', olderThanDays: number = 30): Promise<string | null> {
+  async scheduleCleanup(type: 'sessions' | 'bookings' | 'logs' | 'reminders', olderThanDays: number = 30): Promise<string | null> {
     if (!this.cleanupQueue || !this.isInitialized) {
       return null;
     }
@@ -273,12 +355,31 @@ class QueueService {
     }
   }
 
+  async scheduleReminderProcessing(): Promise<string | null> {
+    if (!this.reminderQueue || !this.isInitialized) {
+      return null;
+    }
+
+    try {
+      const job = await this.reminderQueue.add(
+        'process-reminders',
+        { action: 'process_pending' }
+      );
+
+      logger.debug(`[Queue] Processamento de lembretes agendado: ${job.id}`);
+      return job.id ?? null;
+    } catch (error) {
+      logger.error('[Queue] Erro ao agendar processamento de lembretes', error);
+      return null;
+    }
+  }
+
   // ===========================================================================
   // JOBS REPETITIVOS (CRON)
   // ===========================================================================
 
   async setupRecurringJobs(): Promise<void> {
-    if (!this.backupQueue || !this.cleanupQueue || !this.isInitialized) {
+    if (!this.backupQueue || !this.cleanupQueue || !this.reminderQueue || !this.isInitialized) {
       return;
     }
 
@@ -307,6 +408,18 @@ class QueueService {
         }
       );
 
+      // Processamento de lembretes a cada minuto
+      await this.reminderQueue.add(
+        'process-reminders',
+        { action: 'process_pending' },
+        {
+          repeat: {
+            pattern: '* * * * *', // A cada minuto
+          },
+          jobId: 'reminder-processing-cron',
+        }
+      );
+
       logger.info('[Queue] Jobs recorrentes configurados');
     } catch (error) {
       logger.error('[Queue] Erro ao configurar jobs recorrentes', error);
@@ -321,16 +434,18 @@ class QueueService {
     notifications: { waiting: number; active: number; completed: number; failed: number };
     backups: { waiting: number; active: number; completed: number; failed: number };
     cleanup: { waiting: number; active: number; completed: number; failed: number };
+    reminders: { waiting: number; active: number; completed: number; failed: number };
   } | null> {
     if (!this.isInitialized) {
       return null;
     }
 
     try {
-      const [notifCounts, backupCounts, cleanupCounts] = await Promise.all([
+      const [notifCounts, backupCounts, cleanupCounts, reminderCounts] = await Promise.all([
         this.notificationQueue?.getJobCounts(),
         this.backupQueue?.getJobCounts(),
         this.cleanupQueue?.getJobCounts(),
+        this.reminderQueue?.getJobCounts(),
       ]);
 
       return {
@@ -352,6 +467,12 @@ class QueueService {
           completed: cleanupCounts?.completed ?? 0,
           failed: cleanupCounts?.failed ?? 0,
         },
+        reminders: {
+          waiting: reminderCounts?.waiting ?? 0,
+          active: reminderCounts?.active ?? 0,
+          completed: reminderCounts?.completed ?? 0,
+          failed: reminderCounts?.failed ?? 0,
+        },
       };
     } catch {
       return null;
@@ -368,6 +489,7 @@ class QueueService {
       await this.notificationWorker?.close();
       await this.backupWorker?.close();
       await this.cleanupWorker?.close();
+      await this.reminderWorker?.close();
 
       // Fechar eventos
       await this.queueEvents?.close();
@@ -376,6 +498,7 @@ class QueueService {
       await this.notificationQueue?.close();
       await this.backupQueue?.close();
       await this.cleanupQueue?.close();
+      await this.reminderQueue?.close();
 
       this.isInitialized = false;
       logger.info('[Queue] Serviço de filas encerrado');

@@ -168,6 +168,13 @@ export interface AppConfig {
     timeout: number;
     cleanupInterval: number;
   };
+  reminder: {
+    enabled: boolean;
+    reminder24h: boolean;
+    reminder2h: boolean;
+    confirmationRequired: boolean;
+    confirmationDeadlineHours: number;
+  };
 }
 
 // ============================================

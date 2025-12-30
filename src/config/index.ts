@@ -175,6 +175,14 @@ Digite o número da opção ou *MENU* para ver novamente.
     timeout: 30 * 60 * 1000, // 30 minutos
     cleanupInterval: 5 * 60 * 1000, // 5 minutos
   },
+
+  reminder: {
+    enabled: process.env.REMINDER_ENABLED !== 'false',
+    reminder24h: process.env.REMINDER_24H !== 'false',
+    reminder2h: process.env.REMINDER_2H !== 'false',
+    confirmationRequired: process.env.REMINDER_CONFIRMATION_REQUIRED === 'true',
+    confirmationDeadlineHours: parseInt(process.env.REMINDER_CONFIRMATION_DEADLINE ?? '2', 10),
+  },
 };
 
 export default CONFIG;

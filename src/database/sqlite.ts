@@ -137,6 +137,31 @@ class SQLiteService {
           `);
         },
       },
+      {
+        name: '003_create_reminders_table',
+        up: (db) => {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS reminders (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              booking_id INTEGER NOT NULL,
+              type TEXT NOT NULL CHECK(type IN ('reminder_24h', 'reminder_2h', 'confirmation')),
+              status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'sent', 'failed', 'confirmed')),
+              scheduled_for TEXT NOT NULL,
+              sent_at TEXT,
+              phone TEXT,
+              response TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
+            )
+          `);
+
+          // Índices para consultas frequentes
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_reminders_status ON reminders(status)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_reminders_scheduled ON reminders(scheduled_for)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_reminders_phone ON reminders(phone)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_reminders_booking ON reminders(booking_id)`);
+        },
+      },
     ];
   }
 
@@ -346,6 +371,212 @@ class SQLiteService {
     `);
 
     return stmt.get(type) as { filePath: string; createdAt: string } | null;
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE LEMBRETES
+  // ===========================================================================
+
+  /**
+   * Adiciona um novo lembrete
+   */
+  addReminder(reminder: {
+    bookingId: number;
+    type: 'reminder_24h' | 'reminder_2h' | 'confirmation';
+    status: 'pending' | 'sent' | 'failed' | 'confirmed';
+    scheduledFor: string;
+    phone?: string;
+    createdAt: string;
+  }): { id: number } & typeof reminder | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO reminders (booking_id, type, status, scheduled_for, phone, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        reminder.bookingId,
+        reminder.type,
+        reminder.status,
+        reminder.scheduledFor,
+        reminder.phone ?? null,
+        reminder.createdAt
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...reminder,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar lembrete', error);
+      return null;
+    }
+  }
+
+  /**
+   * Busca lembretes pendentes que devem ser enviados
+   */
+  getPendingReminders(beforeDate: string): Array<{
+    id: number;
+    bookingId: number;
+    type: string;
+    status: string;
+    scheduledFor: string;
+    phone: string | null;
+    bookingName: string;
+    bookingDate: string;
+    bookingTime: string;
+    bookingUnit: string;
+  }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT
+        r.id, r.booking_id as bookingId, r.type, r.status,
+        r.scheduled_for as scheduledFor, r.phone,
+        b.name as bookingName, b.date as bookingDate,
+        b.time as bookingTime, b.unit as bookingUnit
+      FROM reminders r
+      JOIN bookings b ON r.booking_id = b.id
+      WHERE r.status = 'pending' AND r.scheduled_for <= ?
+      ORDER BY r.scheduled_for
+    `);
+
+    return stmt.all(beforeDate) as Array<{
+      id: number;
+      bookingId: number;
+      type: string;
+      status: string;
+      scheduledFor: string;
+      phone: string | null;
+      bookingName: string;
+      bookingDate: string;
+      bookingTime: string;
+      bookingUnit: string;
+    }>;
+  }
+
+  /**
+   * Busca lembretes pendentes por telefone
+   */
+  getPendingRemindersByPhone(phone: string): Array<{
+    id: number;
+    bookingId: number;
+    type: string;
+    status: string;
+    scheduledFor: string;
+  }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, booking_id as bookingId, type, status, scheduled_for as scheduledFor
+      FROM reminders
+      WHERE phone = ? AND status IN ('pending', 'sent')
+      ORDER BY scheduled_for DESC
+    `);
+
+    return stmt.all(phone) as Array<{
+      id: number;
+      bookingId: number;
+      type: string;
+      status: string;
+      scheduledFor: string;
+    }>;
+  }
+
+  /**
+   * Atualiza status do lembrete
+   */
+  updateReminderStatus(
+    id: number,
+    status: 'pending' | 'sent' | 'failed' | 'confirmed',
+    sentAt?: string,
+    response?: string
+  ): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE reminders
+        SET status = ?, sent_at = ?, response = ?
+        WHERE id = ?
+      `);
+
+      const result = stmt.run(status, sentAt ?? null, response ?? null, id);
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar lembrete #${id}`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Retorna estatísticas de lembretes
+   */
+  getReminderStats(): { pending: number; sent: number; confirmed: number; failed: number } {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
+        SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+      FROM reminders
+    `);
+
+    const result = stmt.get() as { pending: number; sent: number; confirmed: number; failed: number } | undefined;
+    return result ?? { pending: 0, sent: 0, confirmed: 0, failed: 0 };
+  }
+
+  /**
+   * Remove lembretes antigos
+   */
+  cleanupOldReminders(beforeDate: string): number {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      DELETE FROM reminders
+      WHERE created_at < ? AND status IN ('sent', 'failed', 'confirmed')
+    `);
+
+    const result = stmt.run(beforeDate);
+
+    if (result.changes > 0) {
+      logger.info(`[SQLite] Removidos ${result.changes} lembretes antigos`);
+    }
+
+    return result.changes;
+  }
+
+  /**
+   * Busca lembretes por booking
+   */
+  getRemindersByBooking(bookingId: number): Array<{
+    id: number;
+    type: string;
+    status: string;
+    scheduledFor: string;
+    sentAt: string | null;
+  }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, type, status, scheduled_for as scheduledFor, sent_at as sentAt
+      FROM reminders
+      WHERE booking_id = ?
+      ORDER BY scheduled_for
+    `);
+
+    return stmt.all(bookingId) as Array<{
+      id: number;
+      type: string;
+      status: string;
+      scheduledFor: string;
+      sentAt: string | null;
+    }>;
   }
 
   // ===========================================================================
