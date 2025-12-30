@@ -1,5 +1,6 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import path from 'path';
+import fs from 'fs';
 import CONFIG from '../config/index.js';
 import logger from '../utils/logger.js';
 import { createDashboardRoutes } from './routes.js';
@@ -47,11 +48,20 @@ class DashboardServer {
 
     // Servir arquivos estáticos do frontend
     const publicPath = path.join(process.cwd(), 'public');
+    const indexPath = path.join(publicPath, 'index.html');
+
+    logger.info(`[Dashboard] Pasta public: ${publicPath}`);
+    logger.info(`[Dashboard] index.html existe: ${fs.existsSync(indexPath)}`);
+
     this.app.use(express.static(publicPath));
 
     // Fallback para SPA
     this.app.get('*', (_req: Request, res: Response) => {
-      res.sendFile(path.join(publicPath, 'index.html'));
+      if (!fs.existsSync(indexPath)) {
+        res.status(404).send('Dashboard não encontrado. Verifique se a pasta public/index.html existe.');
+        return;
+      }
+      res.sendFile(indexPath);
     });
 
     // Error handler
