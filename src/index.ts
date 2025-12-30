@@ -42,6 +42,25 @@ async function bootstrap(): Promise<void> {
     // SQLite para agendamentos (sempre necessário)
     await sqliteService.initialize();
 
+    // Seed unidades padrão (do config para o banco)
+    if (sqliteService.isReady()) {
+      sqliteService.seedDefaultUnits(
+        CONFIG.unidades.map(u => ({
+          slug: u.id === 1 ? 'recreio' : 'bangu',
+          name: u.nome,
+          address: u.endereco,
+          location: u.local,
+          workingDays: u.diasFuncionamento,
+          schedules: u.horarios,
+          schedulesText: u.horariosTexto?.join('\n'),
+          saturdayClass: u.aulaoSabado,
+          prices: u.precos,
+          platforms: u.plataformas,
+          isActive: true,
+        }))
+      );
+    }
+
     // Redis para sessões (opcional - fallback para memória)
     await redisService.initialize();
 

@@ -283,6 +283,139 @@ export function createDashboardRoutes(): Router {
     }
   });
 
+  // ===========================================================================
+  // UNITS (Gerenciamento de Unidades)
+  // ===========================================================================
+
+  router.get('/units', (_req: Request, res: Response) => {
+    try {
+      const units = sqliteService.getUnits();
+      res.json({
+        total: units.length,
+        units,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar unidades', error);
+      res.status(500).json({ error: 'Erro ao listar unidades' });
+    }
+  });
+
+  router.get('/units/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const unit = sqliteService.getUnitById(id);
+      if (!unit) {
+        res.status(404).json({ error: 'Unidade não encontrada' });
+        return;
+      }
+
+      res.json(unit);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar unidade', error);
+      res.status(500).json({ error: 'Erro ao buscar unidade' });
+    }
+  });
+
+  router.post('/units', (req: Request, res: Response) => {
+    try {
+      const { slug, name, address, location, workingDays, schedules, schedulesText, saturdayClass, prices, platforms, whatsappGroupId } = req.body;
+
+      if (!slug || !name || !address || !location) {
+        res.status(400).json({ error: 'Campos obrigatórios: slug, name, address, location' });
+        return;
+      }
+
+      const unit = sqliteService.createUnit({
+        slug,
+        name,
+        address,
+        location,
+        workingDays: workingDays || 'Segunda a Sexta',
+        schedules: schedules || [],
+        schedulesText,
+        saturdayClass,
+        prices: prices || {},
+        platforms: platforms || [],
+        whatsappGroupId,
+        isActive: true,
+      });
+
+      if (unit) {
+        logger.info(`[Dashboard] Unidade criada: ${name}`);
+        res.status(201).json(unit);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar unidade' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar unidade', error);
+      res.status(500).json({ error: 'Erro ao criar unidade' });
+    }
+  });
+
+  router.put('/units/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { name, address, location, workingDays, schedules, schedulesText, saturdayClass, prices, platforms, whatsappGroupId, isActive } = req.body;
+
+      const updated = sqliteService.updateUnit(id, {
+        name,
+        address,
+        location,
+        workingDays,
+        schedules,
+        schedulesText,
+        saturdayClass,
+        prices,
+        platforms,
+        whatsappGroupId,
+        isActive,
+      });
+
+      if (updated) {
+        logger.info(`[Dashboard] Unidade #${id} atualizada`);
+        const unit = sqliteService.getUnitById(id);
+        res.json(unit);
+      } else {
+        res.status(404).json({ error: 'Unidade não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar unidade', error);
+      res.status(500).json({ error: 'Erro ao atualizar unidade' });
+    }
+  });
+
+  router.delete('/units/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteUnit(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Unidade #${id} desativada`);
+        res.json({ success: true, message: 'Unidade desativada' });
+      } else {
+        res.status(404).json({ error: 'Unidade não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao desativar unidade', error);
+      res.status(500).json({ error: 'Erro ao desativar unidade' });
+    }
+  });
+
   return router;
 }
 

@@ -22,6 +22,45 @@ export interface BookingRecord {
   updatedAt: string;
 }
 
+export interface UnitRecord {
+  id?: number;
+  slug: string;
+  name: string;
+  address: string;
+  location: string;
+  whatsappGroupId?: string;
+  workingDays: string;
+  schedules: string[];
+  schedulesText?: string;
+  saturdayClass?: string;
+  prices: {
+    mensalidade?: Array<{ frequencia: string; valor: string }>;
+    avulsa?: string;
+  };
+  platforms: string[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UnitRecordRaw {
+  id: number;
+  slug: string;
+  name: string;
+  address: string;
+  location: string;
+  whatsappGroupId: string | null;
+  workingDays: string;
+  schedules: string;
+  schedulesText: string | null;
+  saturdayClass: string | null;
+  prices: string;
+  platforms: string;
+  isActive: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 class SQLiteService {
   private db: Database.Database | null = null;
   private readonly dbPath: string;
@@ -160,6 +199,33 @@ class SQLiteService {
           db.exec(`CREATE INDEX IF NOT EXISTS idx_reminders_scheduled ON reminders(scheduled_for)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_reminders_phone ON reminders(phone)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_reminders_booking ON reminders(booking_id)`);
+        },
+      },
+      {
+        name: '004_create_units_table',
+        up: (db) => {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS units (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              slug TEXT NOT NULL UNIQUE,
+              name TEXT NOT NULL,
+              address TEXT NOT NULL,
+              location TEXT NOT NULL,
+              whatsapp_group_id TEXT,
+              working_days TEXT NOT NULL DEFAULT 'Segunda a Sexta',
+              schedules TEXT NOT NULL DEFAULT '[]',
+              schedules_text TEXT,
+              saturday_class TEXT,
+              prices TEXT NOT NULL DEFAULT '{}',
+              platforms TEXT NOT NULL DEFAULT '[]',
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_units_slug ON units(slug)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_units_active ON units(is_active)`);
         },
       },
     ];
@@ -577,6 +643,182 @@ class SQLiteService {
       scheduledFor: string;
       sentAt: string | null;
     }>;
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE UNIDADES
+  // ===========================================================================
+
+  /**
+   * Interface para dados de unidade
+   */
+  getUnits(): UnitRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, slug, name, address, location, whatsapp_group_id as whatsappGroupId,
+             working_days as workingDays, schedules, schedules_text as schedulesText,
+             saturday_class as saturdayClass, prices, platforms, is_active as isActive,
+             created_at as createdAt, updated_at as updatedAt
+      FROM units
+      WHERE is_active = 1
+      ORDER BY id
+    `);
+
+    const rows = stmt.all() as UnitRecordRaw[];
+    return rows.map(this.parseUnitRow);
+  }
+
+  getUnitById(id: number): UnitRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, slug, name, address, location, whatsapp_group_id as whatsappGroupId,
+             working_days as workingDays, schedules, schedules_text as schedulesText,
+             saturday_class as saturdayClass, prices, platforms, is_active as isActive,
+             created_at as createdAt, updated_at as updatedAt
+      FROM units
+      WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as UnitRecordRaw | undefined;
+    return row ? this.parseUnitRow(row) : null;
+  }
+
+  getUnitBySlug(slug: string): UnitRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, slug, name, address, location, whatsapp_group_id as whatsappGroupId,
+             working_days as workingDays, schedules, schedules_text as schedulesText,
+             saturday_class as saturdayClass, prices, platforms, is_active as isActive,
+             created_at as createdAt, updated_at as updatedAt
+      FROM units
+      WHERE slug = ?
+    `);
+
+    const row = stmt.get(slug) as UnitRecordRaw | undefined;
+    return row ? this.parseUnitRow(row) : null;
+  }
+
+  createUnit(unit: Omit<UnitRecord, 'id' | 'createdAt' | 'updatedAt'>): UnitRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO units (slug, name, address, location, whatsapp_group_id, working_days,
+                          schedules, schedules_text, saturday_class, prices, platforms,
+                          is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        unit.slug,
+        unit.name,
+        unit.address,
+        unit.location,
+        unit.whatsappGroupId ?? null,
+        unit.workingDays,
+        JSON.stringify(unit.schedules),
+        unit.schedulesText ?? null,
+        unit.saturdayClass ?? null,
+        JSON.stringify(unit.prices),
+        JSON.stringify(unit.platforms),
+        unit.isActive ? 1 : 0,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...unit,
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar unidade', error);
+      return null;
+    }
+  }
+
+  updateUnit(id: number, unit: Partial<Omit<UnitRecord, 'id' | 'createdAt' | 'updatedAt'>>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if (unit.name !== undefined) { updates.push('name = ?'); values.push(unit.name); }
+      if (unit.address !== undefined) { updates.push('address = ?'); values.push(unit.address); }
+      if (unit.location !== undefined) { updates.push('location = ?'); values.push(unit.location); }
+      if (unit.whatsappGroupId !== undefined) { updates.push('whatsapp_group_id = ?'); values.push(unit.whatsappGroupId); }
+      if (unit.workingDays !== undefined) { updates.push('working_days = ?'); values.push(unit.workingDays); }
+      if (unit.schedules !== undefined) { updates.push('schedules = ?'); values.push(JSON.stringify(unit.schedules)); }
+      if (unit.schedulesText !== undefined) { updates.push('schedules_text = ?'); values.push(unit.schedulesText); }
+      if (unit.saturdayClass !== undefined) { updates.push('saturday_class = ?'); values.push(unit.saturdayClass); }
+      if (unit.prices !== undefined) { updates.push('prices = ?'); values.push(JSON.stringify(unit.prices)); }
+      if (unit.platforms !== undefined) { updates.push('platforms = ?'); values.push(JSON.stringify(unit.platforms)); }
+      if (unit.isActive !== undefined) { updates.push('is_active = ?'); values.push(unit.isActive ? 1 : 0); }
+
+      if (updates.length === 0) return false;
+
+      updates.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`UPDATE units SET ${updates.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar unidade #${id}`, error);
+      return false;
+    }
+  }
+
+  deleteUnit(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    // Soft delete - apenas desativa
+    const stmt = this.db.prepare('UPDATE units SET is_active = 0, updated_at = ? WHERE id = ?');
+    const result = stmt.run(new Date().toISOString(), id);
+    return result.changes > 0;
+  }
+
+  private parseUnitRow(row: UnitRecordRaw): UnitRecord {
+    return {
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      address: row.address,
+      location: row.location,
+      whatsappGroupId: row.whatsappGroupId ?? undefined,
+      workingDays: row.workingDays,
+      schedules: JSON.parse(row.schedules || '[]'),
+      schedulesText: row.schedulesText ?? undefined,
+      saturdayClass: row.saturdayClass ?? undefined,
+      prices: JSON.parse(row.prices || '{}'),
+      platforms: JSON.parse(row.platforms || '[]'),
+      isActive: row.isActive === 1,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  /**
+   * Inicializa unidades padrão se não existirem
+   */
+  seedDefaultUnits(defaultUnits: Array<Omit<UnitRecord, 'id' | 'createdAt' | 'updatedAt'>>): void {
+    if (!this.db) return;
+
+    for (const unit of defaultUnits) {
+      const existing = this.getUnitBySlug(unit.slug);
+      if (!existing) {
+        this.createUnit(unit);
+        logger.info(`[SQLite] Unidade criada: ${unit.name}`);
+      }
+    }
   }
 
   // ===========================================================================

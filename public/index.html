@@ -473,6 +473,7 @@
       <div class="tabs">
         <button class="tab active" onclick="showTab('bookings')">Agendamentos</button>
         <button class="tab" onclick="showTab('week')">Semana</button>
+        <button class="tab" onclick="showTab('units')">Unidades</button>
         <button class="tab" onclick="showTab('queues')">Filas</button>
         <button class="tab" onclick="showTab('reminders')">Lembretes</button>
       </div>
@@ -518,6 +519,80 @@
             <tr><td colspan="5" class="loading">Carregando...</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Units Tab -->
+      <div id="unitsTab" class="section" style="display: none;">
+        <div class="section-header">
+          <h2 class="section-title">Gerenciar Unidades</h2>
+        </div>
+        <div id="unitsContent" class="loading">Carregando...</div>
+
+        <!-- Edit Modal -->
+        <div id="editModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; overflow-y: auto;">
+          <div style="max-width: 600px; margin: 50px auto; background: var(--bg-card); border-radius: 12px; padding: 30px;">
+            <h3 style="margin-bottom: 20px;">Editar Unidade</h3>
+            <form id="editUnitForm">
+              <input type="hidden" id="editUnitId">
+
+              <div class="form-group">
+                <label>Nome</label>
+                <input type="text" id="editName" required>
+              </div>
+
+              <div class="form-group">
+                <label>Endereço</label>
+                <textarea id="editAddress" rows="2" style="width: 100%; padding: 12px; border: 2px solid #333; border-radius: 8px; background: var(--bg-dark); color: var(--text); font-size: 14px; resize: vertical;"></textarea>
+              </div>
+
+              <div class="form-group">
+                <label>Local</label>
+                <input type="text" id="editLocation">
+              </div>
+
+              <div class="form-group">
+                <label>Dias de Funcionamento</label>
+                <input type="text" id="editWorkingDays">
+              </div>
+
+              <div class="form-group">
+                <label>Horários (separados por vírgula)</label>
+                <input type="text" id="editSchedules" placeholder="17:30 às 18:30, 18:30 às 19:30">
+              </div>
+
+              <div class="form-group">
+                <label>Horários Detalhados</label>
+                <textarea id="editSchedulesText" rows="5" style="width: 100%; padding: 12px; border: 2px solid #333; border-radius: 8px; background: var(--bg-dark); color: var(--text); font-size: 14px; resize: vertical;" placeholder="SEGUNDA E SEXTA:&#10;  • 7h às 8h - Livre"></textarea>
+              </div>
+
+              <div class="form-group">
+                <label>Aula de Sábado</label>
+                <input type="text" id="editSaturdayClass" placeholder="Sábado: Aulão das 7h às 8h">
+              </div>
+
+              <div class="form-group">
+                <label>Plataformas (separadas por vírgula)</label>
+                <input type="text" id="editPlatforms" placeholder="Wellhub, TotalPass, GuruPass">
+              </div>
+
+              <div class="form-group">
+                <label>Preço Avulsa</label>
+                <input type="text" id="editPriceAvulsa" placeholder="R$ 30,00">
+              </div>
+
+              <div id="mensalidadeFields">
+                <label style="display: block; margin-bottom: 10px; color: var(--text-muted);">Mensalidades</label>
+                <div id="mensalidadeList"></div>
+                <button type="button" onclick="addMensalidade()" style="margin-top: 10px; padding: 8px 16px; background: var(--bg-dark); border: 1px solid var(--primary); color: var(--primary); border-radius: 6px; cursor: pointer;">+ Adicionar Mensalidade</button>
+              </div>
+
+              <div style="display: flex; gap: 10px; margin-top: 30px;">
+                <button type="submit" class="btn" style="flex: 1;">Salvar</button>
+                <button type="button" onclick="closeEditModal()" style="flex: 1; padding: 14px; border: 2px solid #666; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
       </div>
 
       <!-- Queues Tab -->
@@ -617,20 +692,6 @@
       });
       if (!response.ok) throw new Error('API Error');
       return response.json();
-    }
-
-    async function loadAllData() {
-      try {
-        await Promise.all([
-          loadStatus(),
-          loadTodayBookings(),
-          loadWeekBookings(),
-          loadQueues(),
-          loadReminders()
-        ]);
-      } catch (error) {
-        console.error('Error loading data:', error);
-      }
     }
 
     function refreshData() {
@@ -837,6 +898,193 @@
     function formatDate(dateStr) {
       const [year, month, day] = dateStr.split('-');
       return `${day}/${month}`;
+    }
+
+    // =========================================================================
+    // UNITS MANAGEMENT
+    // =========================================================================
+
+    let currentUnits = [];
+
+    async function loadUnits() {
+      try {
+        const data = await fetchApi('/units');
+        currentUnits = data.units;
+
+        const content = document.getElementById('unitsContent');
+
+        if (data.units.length === 0) {
+          content.innerHTML = '<p style="color: var(--text-muted);">Nenhuma unidade cadastrada</p>';
+          return;
+        }
+
+        content.innerHTML = data.units.map(unit => `
+          <div class="card" style="margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+              <div>
+                <h3 style="color: var(--primary); margin-bottom: 5px;">${unit.name}</h3>
+                <span class="badge badge-info">${unit.slug}</span>
+              </div>
+              <button onclick="editUnit(${unit.id})" style="padding: 8px 16px; background: var(--primary); border: none; color: #fff; border-radius: 6px; cursor: pointer;">Editar</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+              <div>
+                <strong style="color: var(--text-muted);">Endereço:</strong>
+                <p style="margin-top: 5px;">${unit.address}</p>
+              </div>
+              <div>
+                <strong style="color: var(--text-muted);">Local:</strong>
+                <p style="margin-top: 5px;">${unit.location}</p>
+              </div>
+              <div>
+                <strong style="color: var(--text-muted);">Funcionamento:</strong>
+                <p style="margin-top: 5px;">${unit.workingDays}</p>
+              </div>
+              <div>
+                <strong style="color: var(--text-muted);">Horários:</strong>
+                <p style="margin-top: 5px;">${unit.schedules.length > 0 ? unit.schedules.join(', ') : (unit.schedulesText ? 'Ver detalhes' : '-')}</p>
+              </div>
+              <div>
+                <strong style="color: var(--text-muted);">Preço Avulsa:</strong>
+                <p style="margin-top: 5px;">${unit.prices?.avulsa || '-'}</p>
+              </div>
+              <div>
+                <strong style="color: var(--text-muted);">Plataformas:</strong>
+                <p style="margin-top: 5px;">${unit.platforms.join(', ') || '-'}</p>
+              </div>
+            </div>
+
+            ${unit.prices?.mensalidade?.length > 0 ? `
+              <div style="margin-top: 15px;">
+                <strong style="color: var(--text-muted);">Mensalidades:</strong>
+                <ul style="margin-top: 5px; padding-left: 20px;">
+                  ${unit.prices.mensalidade.map(m => `<li>${m.frequencia}: ${m.valor}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+          </div>
+        `).join('');
+      } catch (error) {
+        console.error('Error loading units:', error);
+        document.getElementById('unitsContent').innerHTML = '<p style="color: var(--danger);">Erro ao carregar unidades</p>';
+      }
+    }
+
+    function editUnit(id) {
+      const unit = currentUnits.find(u => u.id === id);
+      if (!unit) return;
+
+      document.getElementById('editUnitId').value = unit.id;
+      document.getElementById('editName').value = unit.name;
+      document.getElementById('editAddress').value = unit.address;
+      document.getElementById('editLocation').value = unit.location;
+      document.getElementById('editWorkingDays').value = unit.workingDays;
+      document.getElementById('editSchedules').value = unit.schedules.join(', ');
+      document.getElementById('editSchedulesText').value = unit.schedulesText || '';
+      document.getElementById('editSaturdayClass').value = unit.saturdayClass || '';
+      document.getElementById('editPlatforms').value = unit.platforms.join(', ');
+      document.getElementById('editPriceAvulsa').value = unit.prices?.avulsa || '';
+
+      // Load mensalidades
+      const list = document.getElementById('mensalidadeList');
+      list.innerHTML = '';
+      if (unit.prices?.mensalidade) {
+        unit.prices.mensalidade.forEach((m, i) => {
+          addMensalidadeRow(m.frequencia, m.valor);
+        });
+      }
+
+      document.getElementById('editModal').style.display = 'block';
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').style.display = 'none';
+    }
+
+    function addMensalidade() {
+      addMensalidadeRow('', '');
+    }
+
+    function addMensalidadeRow(freq, valor) {
+      const list = document.getElementById('mensalidadeList');
+      const div = document.createElement('div');
+      div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+      div.innerHTML = `
+        <input type="text" class="mensalidade-freq" value="${freq}" placeholder="Frequência" style="flex: 1; padding: 10px; border: 2px solid #333; border-radius: 6px; background: var(--bg-dark); color: var(--text);">
+        <input type="text" class="mensalidade-valor" value="${valor}" placeholder="Valor" style="flex: 1; padding: 10px; border: 2px solid #333; border-radius: 6px; background: var(--bg-dark); color: var(--text);">
+        <button type="button" onclick="this.parentElement.remove()" style="padding: 10px; background: var(--danger); border: none; color: #fff; border-radius: 6px; cursor: pointer;">✕</button>
+      `;
+      list.appendChild(div);
+    }
+
+    document.getElementById('editUnitForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const id = document.getElementById('editUnitId').value;
+
+      // Collect mensalidades
+      const mensalidade = [];
+      const freqs = document.querySelectorAll('.mensalidade-freq');
+      const valores = document.querySelectorAll('.mensalidade-valor');
+      freqs.forEach((f, i) => {
+        if (f.value && valores[i].value) {
+          mensalidade.push({ frequencia: f.value, valor: valores[i].value });
+        }
+      });
+
+      const data = {
+        name: document.getElementById('editName').value,
+        address: document.getElementById('editAddress').value,
+        location: document.getElementById('editLocation').value,
+        workingDays: document.getElementById('editWorkingDays').value,
+        schedules: document.getElementById('editSchedules').value.split(',').map(s => s.trim()).filter(s => s),
+        schedulesText: document.getElementById('editSchedulesText').value || null,
+        saturdayClass: document.getElementById('editSaturdayClass').value || null,
+        platforms: document.getElementById('editPlatforms').value.split(',').map(s => s.trim()).filter(s => s),
+        prices: {
+          avulsa: document.getElementById('editPriceAvulsa').value || null,
+          mensalidade: mensalidade.length > 0 ? mensalidade : null
+        }
+      };
+
+      try {
+        const response = await fetch('/api/units/' + id, {
+          method: 'PUT',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+          closeEditModal();
+          loadUnits();
+          alert('Unidade atualizada com sucesso!');
+        } else {
+          const error = await response.json();
+          alert('Erro: ' + (error.error || 'Falha ao atualizar'));
+        }
+      } catch (error) {
+        alert('Erro ao atualizar unidade');
+      }
+    });
+
+    // Update loadAllData to include units
+    async function loadAllData() {
+      try {
+        await Promise.all([
+          loadStatus(),
+          loadTodayBookings(),
+          loadWeekBookings(),
+          loadUnits(),
+          loadQueues(),
+          loadReminders()
+        ]);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      }
     }
   </script>
 </body>
