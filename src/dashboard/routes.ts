@@ -6,6 +6,8 @@ import metricsService from '../infra/metrics.js';
 import reminderService from '../services/reminder.js';
 import { getMemoryStats } from '../events/messageHandler.js';
 import logger from '../utils/logger.js';
+import { pollHandler } from '../handlers/pollHandler.js';
+import CONFIG from '../config/index.js';
 
 // =============================================================================
 // DASHBOARD API ROUTES
@@ -413,6 +415,255 @@ export function createDashboardRoutes(): Router {
     } catch (error) {
       logger.error('[Dashboard] Erro ao desativar unidade', error);
       res.status(500).json({ error: 'Erro ao desativar unidade' });
+    }
+  });
+
+  // ===========================================================================
+  // POLLS (Gerenciamento de Enquetes)
+  // ===========================================================================
+
+  router.get('/polls', (_req: Request, res: Response) => {
+    try {
+      const polls = sqliteService.getPollTemplates();
+      res.json({
+        total: polls.length,
+        polls,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar enquetes', error);
+      res.status(500).json({ error: 'Erro ao listar enquetes' });
+    }
+  });
+
+  router.get('/polls/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const poll = sqliteService.getPollTemplateById(id);
+      if (!poll) {
+        res.status(404).json({ error: 'Enquete não encontrada' });
+        return;
+      }
+
+      res.json(poll);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar enquete', error);
+      res.status(500).json({ error: 'Erro ao buscar enquete' });
+    }
+  });
+
+  router.post('/polls', (req: Request, res: Response) => {
+    try {
+      const { name, options, targetGroup, customGroupId, scheduleType, scheduleCron, scheduleDescription } = req.body;
+
+      if (!name || !options || !Array.isArray(options) || options.length === 0) {
+        res.status(400).json({ error: 'Campos obrigatórios: name, options (array não vazio)' });
+        return;
+      }
+
+      if (!targetGroup || !['recreio', 'bangu', 'custom'].includes(targetGroup)) {
+        res.status(400).json({ error: 'targetGroup deve ser: recreio, bangu ou custom' });
+        return;
+      }
+
+      if (targetGroup === 'custom' && !customGroupId) {
+        res.status(400).json({ error: 'customGroupId é obrigatório quando targetGroup é custom' });
+        return;
+      }
+
+      const poll = sqliteService.createPollTemplate({
+        name,
+        options,
+        targetGroup,
+        customGroupId,
+        scheduleType: scheduleType || 'manual',
+        scheduleCron,
+        scheduleDescription,
+        isActive: true,
+      });
+
+      if (poll) {
+        logger.info(`[Dashboard] Enquete criada: ${name}`);
+        res.status(201).json(poll);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar enquete' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar enquete', error);
+      res.status(500).json({ error: 'Erro ao criar enquete' });
+    }
+  });
+
+  router.put('/polls/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { name, options, targetGroup, customGroupId, scheduleType, scheduleCron, scheduleDescription, isActive } = req.body;
+
+      const updated = sqliteService.updatePollTemplate(id, {
+        name,
+        options,
+        targetGroup,
+        customGroupId,
+        scheduleType,
+        scheduleCron,
+        scheduleDescription,
+        isActive,
+      });
+
+      if (updated) {
+        logger.info(`[Dashboard] Enquete #${id} atualizada`);
+        const poll = sqliteService.getPollTemplateById(id);
+        res.json(poll);
+      } else {
+        res.status(404).json({ error: 'Enquete não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar enquete', error);
+      res.status(500).json({ error: 'Erro ao atualizar enquete' });
+    }
+  });
+
+  router.delete('/polls/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deletePollTemplate(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Enquete #${id} desativada`);
+        res.json({ success: true, message: 'Enquete desativada' });
+      } else {
+        res.status(404).json({ error: 'Enquete não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao desativar enquete', error);
+      res.status(500).json({ error: 'Erro ao desativar enquete' });
+    }
+  });
+
+  // Enviar enquete imediatamente
+  router.post('/polls/:id/send', async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const poll = sqliteService.getPollTemplateById(id);
+      if (!poll) {
+        res.status(404).json({ error: 'Enquete não encontrada' });
+        return;
+      }
+
+      // Determinar o grupo de destino
+      let groupId: string;
+      if (poll.targetGroup === 'recreio') {
+        groupId = CONFIG.gruposWhatsApp.recreio;
+      } else if (poll.targetGroup === 'bangu') {
+        groupId = CONFIG.gruposWhatsApp.bangu;
+      } else if (poll.customGroupId) {
+        groupId = poll.customGroupId;
+      } else {
+        res.status(400).json({ error: 'Grupo de destino não configurado' });
+        return;
+      }
+
+      // Verificar se WhatsApp está conectado
+      if (!whatsappService.isConnected()) {
+        res.status(503).json({ error: 'WhatsApp não está conectado' });
+        return;
+      }
+
+      // Enviar enquete
+      const success = await pollHandler.createPoll(groupId, poll.name, poll.options);
+
+      if (success) {
+        logger.info(`[Dashboard] Enquete "${poll.name}" enviada para ${poll.targetGroup}`);
+        res.json({ success: true, message: 'Enquete enviada com sucesso' });
+      } else {
+        res.status(500).json({ error: 'Falha ao enviar enquete' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao enviar enquete', error);
+      res.status(500).json({ error: 'Erro ao enviar enquete' });
+    }
+  });
+
+  // ===========================================================================
+  // POLL NAMES (Nomes das Enquetes por Dia)
+  // ===========================================================================
+
+  router.get('/poll-names', (_req: Request, res: Response) => {
+    try {
+      const names = sqliteService.getPollNames();
+      res.json({
+        total: names.length,
+        names,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar nomes de enquetes', error);
+      res.status(500).json({ error: 'Erro ao listar nomes de enquetes' });
+    }
+  });
+
+  router.get('/poll-names/:day', (req: Request, res: Response) => {
+    try {
+      const day = req.params.day ?? '';
+      const names = sqliteService.getPollNamesByDay(day);
+
+      if (!names) {
+        res.status(404).json({ error: 'Dia não encontrado' });
+        return;
+      }
+
+      res.json(names);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar nomes de enquetes', error);
+      res.status(500).json({ error: 'Erro ao buscar nomes de enquetes' });
+    }
+  });
+
+  router.put('/poll-names/:day', (req: Request, res: Response) => {
+    try {
+      const day = req.params.day ?? '';
+      const { names } = req.body;
+
+      if (!names || !Array.isArray(names)) {
+        res.status(400).json({ error: 'Campo obrigatório: names (array)' });
+        return;
+      }
+
+      const validDays = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+      if (!validDays.includes(day)) {
+        res.status(400).json({ error: `Dia inválido. Use: ${validDays.join(', ')}` });
+        return;
+      }
+
+      const updated = sqliteService.updatePollNames(day, names);
+
+      if (updated) {
+        logger.info(`[Dashboard] Nomes de enquete atualizados para ${day}`);
+        res.json({ success: true, day, names });
+      } else {
+        res.status(500).json({ error: 'Erro ao atualizar nomes' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar nomes de enquetes', error);
+      res.status(500).json({ error: 'Erro ao atualizar nomes de enquetes' });
     }
   });
 

@@ -22,6 +22,48 @@ export interface BookingRecord {
   updatedAt: string;
 }
 
+export interface PollTemplateRecord {
+  id?: number;
+  name: string;
+  options: string[];
+  targetGroup: 'recreio' | 'bangu' | 'custom';
+  customGroupId?: string;
+  scheduleType: 'manual' | 'scheduled';
+  scheduleCron?: string;
+  scheduleDescription?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PollTemplateRecordRaw {
+  id: number;
+  name: string;
+  options: string;
+  targetGroup: string;
+  customGroupId: string | null;
+  scheduleType: string;
+  scheduleCron: string | null;
+  scheduleDescription: string | null;
+  isActive: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PollNameRecord {
+  id?: number;
+  dayOfWeek: string;
+  names: string[];
+  isActive: boolean;
+}
+
+interface PollNameRecordRaw {
+  id: number;
+  dayOfWeek: string;
+  names: string;
+  isActive: number;
+}
+
 export interface UnitRecord {
   id?: number;
   slug: string;
@@ -226,6 +268,57 @@ class SQLiteService {
 
           db.exec(`CREATE INDEX IF NOT EXISTS idx_units_slug ON units(slug)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_units_active ON units(is_active)`);
+        },
+      },
+      {
+        name: '005_create_poll_templates_table',
+        up: (db) => {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS poll_templates (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              options TEXT NOT NULL DEFAULT '[]',
+              target_group TEXT NOT NULL CHECK(target_group IN ('recreio', 'bangu', 'custom')),
+              custom_group_id TEXT,
+              schedule_type TEXT NOT NULL DEFAULT 'manual' CHECK(schedule_type IN ('manual', 'scheduled')),
+              schedule_cron TEXT,
+              schedule_description TEXT,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_poll_templates_active ON poll_templates(is_active)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_poll_templates_target ON poll_templates(target_group)`);
+        },
+      },
+      {
+        name: '006_create_poll_names_table',
+        up: (db) => {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS poll_names (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              day_of_week TEXT NOT NULL UNIQUE,
+              names TEXT NOT NULL DEFAULT '[]',
+              is_active INTEGER NOT NULL DEFAULT 1
+            )
+          `);
+
+          // Seed default poll names from CONFIG
+          const defaultNames = [
+            { day: 'segunda', names: ['Segunda de Treino ⚡', 'Segunda na Areia ⚡', 'Segunda de Futevôlei ⚡', 'SEGUNDOUUU ⚡'] },
+            { day: 'terca', names: ['Terça de Treino ⚡', 'Terça na Quadra ⚡', 'Terça de Futevôlei ⚡', 'Terça na Areia ⚡', 'TERÇOUUU ⚡'] },
+            { day: 'quarta', names: ['Quarta de Treino ⚡', 'Quarta na Areia ⚡', 'Quarta de Futevôlei ⚡', 'QUARTOUUU ⚡'] },
+            { day: 'quinta', names: ['Quinta de Treino ⚡', 'Quinta na Quadra ⚡', 'Quinta de Futevôlei ⚡', 'Quinta na Areia ⚡', 'QUINTOUUU ⚡'] },
+            { day: 'sexta', names: ['Sexta de Treino ⚡', 'Sexta na Areia ⚡', 'Sexta de Futevôlei ⚡', 'SEXTOUUU ⚡'] },
+            { day: 'sabado', names: ['Aulão de Sábado 7H ⚡'] },
+          ];
+
+          const stmt = db.prepare('INSERT OR IGNORE INTO poll_names (day_of_week, names) VALUES (?, ?)');
+          for (const item of defaultNames) {
+            stmt.run(item.day, JSON.stringify(item.names));
+          }
         },
       },
     ];
@@ -819,6 +912,193 @@ class SQLiteService {
         logger.info(`[SQLite] Unidade criada: ${unit.name}`);
       }
     }
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE TEMPLATES DE ENQUETES
+  // ===========================================================================
+
+  getPollTemplates(): PollTemplateRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, options, target_group as targetGroup, custom_group_id as customGroupId,
+             schedule_type as scheduleType, schedule_cron as scheduleCron,
+             schedule_description as scheduleDescription, is_active as isActive,
+             created_at as createdAt, updated_at as updatedAt
+      FROM poll_templates
+      WHERE is_active = 1
+      ORDER BY id
+    `);
+
+    const rows = stmt.all() as PollTemplateRecordRaw[];
+    return rows.map(this.parsePollTemplateRow);
+  }
+
+  getPollTemplateById(id: number): PollTemplateRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, options, target_group as targetGroup, custom_group_id as customGroupId,
+             schedule_type as scheduleType, schedule_cron as scheduleCron,
+             schedule_description as scheduleDescription, is_active as isActive,
+             created_at as createdAt, updated_at as updatedAt
+      FROM poll_templates
+      WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as PollTemplateRecordRaw | undefined;
+    return row ? this.parsePollTemplateRow(row) : null;
+  }
+
+  createPollTemplate(poll: Omit<PollTemplateRecord, 'id' | 'createdAt' | 'updatedAt'>): PollTemplateRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO poll_templates (name, options, target_group, custom_group_id,
+                                   schedule_type, schedule_cron, schedule_description,
+                                   is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        poll.name,
+        JSON.stringify(poll.options),
+        poll.targetGroup,
+        poll.customGroupId ?? null,
+        poll.scheduleType,
+        poll.scheduleCron ?? null,
+        poll.scheduleDescription ?? null,
+        poll.isActive ? 1 : 0,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...poll,
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar template de enquete', error);
+      return null;
+    }
+  }
+
+  updatePollTemplate(id: number, poll: Partial<Omit<PollTemplateRecord, 'id' | 'createdAt' | 'updatedAt'>>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if (poll.name !== undefined) { updates.push('name = ?'); values.push(poll.name); }
+      if (poll.options !== undefined) { updates.push('options = ?'); values.push(JSON.stringify(poll.options)); }
+      if (poll.targetGroup !== undefined) { updates.push('target_group = ?'); values.push(poll.targetGroup); }
+      if (poll.customGroupId !== undefined) { updates.push('custom_group_id = ?'); values.push(poll.customGroupId); }
+      if (poll.scheduleType !== undefined) { updates.push('schedule_type = ?'); values.push(poll.scheduleType); }
+      if (poll.scheduleCron !== undefined) { updates.push('schedule_cron = ?'); values.push(poll.scheduleCron); }
+      if (poll.scheduleDescription !== undefined) { updates.push('schedule_description = ?'); values.push(poll.scheduleDescription); }
+      if (poll.isActive !== undefined) { updates.push('is_active = ?'); values.push(poll.isActive ? 1 : 0); }
+
+      if (updates.length === 0) return false;
+
+      updates.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`UPDATE poll_templates SET ${updates.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar template de enquete #${id}`, error);
+      return false;
+    }
+  }
+
+  deletePollTemplate(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('UPDATE poll_templates SET is_active = 0, updated_at = ? WHERE id = ?');
+    const result = stmt.run(new Date().toISOString(), id);
+    return result.changes > 0;
+  }
+
+  private parsePollTemplateRow(row: PollTemplateRecordRaw): PollTemplateRecord {
+    return {
+      id: row.id,
+      name: row.name,
+      options: JSON.parse(row.options || '[]'),
+      targetGroup: row.targetGroup as 'recreio' | 'bangu' | 'custom',
+      customGroupId: row.customGroupId ?? undefined,
+      scheduleType: row.scheduleType as 'manual' | 'scheduled',
+      scheduleCron: row.scheduleCron ?? undefined,
+      scheduleDescription: row.scheduleDescription ?? undefined,
+      isActive: row.isActive === 1,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE NOMES DE ENQUETES
+  // ===========================================================================
+
+  getPollNames(): PollNameRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, day_of_week as dayOfWeek, names, is_active as isActive
+      FROM poll_names
+      WHERE is_active = 1
+      ORDER BY id
+    `);
+
+    const rows = stmt.all() as PollNameRecordRaw[];
+    return rows.map(this.parsePollNameRow);
+  }
+
+  getPollNamesByDay(dayOfWeek: string): PollNameRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, day_of_week as dayOfWeek, names, is_active as isActive
+      FROM poll_names
+      WHERE day_of_week = ? AND is_active = 1
+    `);
+
+    const row = stmt.get(dayOfWeek) as PollNameRecordRaw | undefined;
+    return row ? this.parsePollNameRow(row) : null;
+  }
+
+  updatePollNames(dayOfWeek: string, names: string[]): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO poll_names (day_of_week, names) VALUES (?, ?)
+        ON CONFLICT(day_of_week) DO UPDATE SET names = excluded.names
+      `);
+
+      stmt.run(dayOfWeek, JSON.stringify(names));
+      return true;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar nomes de enquete para ${dayOfWeek}`, error);
+      return false;
+    }
+  }
+
+  private parsePollNameRow(row: PollNameRecordRaw): PollNameRecord {
+    return {
+      id: row.id,
+      dayOfWeek: row.dayOfWeek,
+      names: JSON.parse(row.names || '[]'),
+      isActive: row.isActive === 1,
+    };
   }
 
   // ===========================================================================

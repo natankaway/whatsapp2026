@@ -349,6 +349,64 @@
       color: #fff;
     }
 
+    .poll-subtab {
+      background: transparent;
+      border: 1px solid #444;
+      color: var(--text-muted);
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 13px;
+      border-radius: 6px;
+      transition: all 0.3s;
+    }
+
+    .poll-subtab:hover {
+      color: var(--text);
+      border-color: var(--primary);
+    }
+
+    .poll-subtab.active {
+      color: var(--primary);
+      border-color: var(--primary);
+      background: rgba(37, 211, 102, 0.1);
+    }
+
+    .send-btn {
+      background: var(--info);
+      border: none;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.3s;
+    }
+
+    .send-btn:hover {
+      background: #1976d2;
+    }
+
+    .send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .edit-btn {
+      background: var(--warning);
+      border: none;
+      color: #000;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.3s;
+      margin-right: 5px;
+    }
+
+    .edit-btn:hover {
+      opacity: 0.8;
+    }
+
     @media (max-width: 768px) {
       .header {
         flex-direction: column;
@@ -474,6 +532,7 @@
         <button class="tab active" onclick="showTab('bookings')">Agendamentos</button>
         <button class="tab" onclick="showTab('week')">Semana</button>
         <button class="tab" onclick="showTab('units')">Unidades</button>
+        <button class="tab" onclick="showTab('polls')">Enquetes</button>
         <button class="tab" onclick="showTab('queues')">Filas</button>
         <button class="tab" onclick="showTab('reminders')">Lembretes</button>
       </div>
@@ -589,6 +648,69 @@
               <div style="display: flex; gap: 10px; margin-top: 30px;">
                 <button type="submit" class="btn" style="flex: 1;">Salvar</button>
                 <button type="button" onclick="closeEditModal()" style="flex: 1; padding: 14px; border: 2px solid #666; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Polls Tab -->
+      <div id="pollsTab" class="section" style="display: none;">
+        <div class="section-header">
+          <h2 class="section-title">Gerenciar Enquetes</h2>
+          <button onclick="showCreatePollModal()" style="padding: 8px 16px; background: var(--primary); border: none; color: #fff; border-radius: 6px; cursor: pointer;">+ Nova Enquete</button>
+        </div>
+
+        <!-- Sub-tabs for polls -->
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+          <button class="poll-subtab active" onclick="showPollSubtab('templates')">Templates</button>
+          <button class="poll-subtab" onclick="showPollSubtab('names')">Nomes por Dia</button>
+        </div>
+
+        <!-- Poll Templates -->
+        <div id="pollTemplatesContent" class="loading">Carregando...</div>
+
+        <!-- Poll Names -->
+        <div id="pollNamesContent" style="display: none;">
+          <p style="color: var(--text-muted); margin-bottom: 15px;">Configure os nomes que serão usados nas enquetes de cada dia da semana.</p>
+          <div id="pollNamesList"></div>
+        </div>
+
+        <!-- Create/Edit Poll Modal -->
+        <div id="pollModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; overflow-y: auto;">
+          <div style="max-width: 600px; margin: 50px auto; background: var(--bg-card); border-radius: 12px; padding: 30px;">
+            <h3 id="pollModalTitle" style="margin-bottom: 20px;">Nova Enquete</h3>
+            <form id="pollForm">
+              <input type="hidden" id="pollId">
+
+              <div class="form-group">
+                <label>Nome/Titulo da Enquete</label>
+                <input type="text" id="pollName" required placeholder="Ex: Treino de Segunda">
+              </div>
+
+              <div class="form-group">
+                <label>Grupo de Destino</label>
+                <select id="pollTargetGroup" style="width: 100%; padding: 12px 16px; border: 2px solid #333; border-radius: 8px; background: var(--bg-dark); color: var(--text); font-size: 16px;">
+                  <option value="recreio">Recreio</option>
+                  <option value="bangu">Bangu</option>
+                  <option value="custom">Outro (ID personalizado)</option>
+                </select>
+              </div>
+
+              <div class="form-group" id="customGroupField" style="display: none;">
+                <label>ID do Grupo WhatsApp</label>
+                <input type="text" id="pollCustomGroupId" placeholder="Ex: 120363208643524067@g.us">
+              </div>
+
+              <div class="form-group">
+                <label>Opcoes da Enquete</label>
+                <div id="pollOptionsList"></div>
+                <button type="button" onclick="addPollOption()" style="margin-top: 10px; padding: 8px 16px; background: var(--bg-dark); border: 1px solid var(--primary); color: var(--primary); border-radius: 6px; cursor: pointer;">+ Adicionar Opcao</button>
+              </div>
+
+              <div style="display: flex; gap: 10px; margin-top: 30px;">
+                <button type="submit" class="btn" style="flex: 1;">Salvar</button>
+                <button type="button" onclick="closePollModal()" style="flex: 1; padding: 14px; border: 2px solid #666; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;">Cancelar</button>
               </div>
             </form>
           </div>
@@ -1071,7 +1193,298 @@
       }
     });
 
-    // Update loadAllData to include units
+    // =========================================================================
+    // POLLS MANAGEMENT
+    // =========================================================================
+
+    let currentPolls = [];
+    let currentPollNames = [];
+
+    async function loadPolls() {
+      try {
+        const data = await fetchApi('/polls');
+        currentPolls = data.polls;
+
+        const content = document.getElementById('pollTemplatesContent');
+
+        if (data.polls.length === 0) {
+          content.innerHTML = `
+            <p style="color: var(--text-muted); text-align: center; padding: 40px;">
+              Nenhuma enquete cadastrada.<br>
+              Clique em "+ Nova Enquete" para criar uma.
+            </p>
+          `;
+          return;
+        }
+
+        content.innerHTML = `
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Grupo</th>
+                <th>Opcoes</th>
+                <th>Acoes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.polls.map(poll => `
+                <tr>
+                  <td><strong>${poll.name}</strong></td>
+                  <td><span class="badge badge-info">${poll.targetGroup}</span></td>
+                  <td>${poll.options.slice(0, 3).join(', ')}${poll.options.length > 3 ? '...' : ''}</td>
+                  <td>
+                    <button class="send-btn" onclick="sendPoll(${poll.id})">Enviar</button>
+                    <button class="edit-btn" onclick="editPoll(${poll.id})">Editar</button>
+                    <button class="delete-btn" onclick="deletePoll(${poll.id})">Excluir</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (error) {
+        console.error('Error loading polls:', error);
+        document.getElementById('pollTemplatesContent').innerHTML = '<p style="color: var(--danger);">Erro ao carregar enquetes</p>';
+      }
+    }
+
+    async function loadPollNames() {
+      try {
+        const data = await fetchApi('/poll-names');
+        currentPollNames = data.names;
+
+        const dayLabels = {
+          'segunda': 'Segunda-feira',
+          'terca': 'Terca-feira',
+          'quarta': 'Quarta-feira',
+          'quinta': 'Quinta-feira',
+          'sexta': 'Sexta-feira',
+          'sabado': 'Sabado'
+        };
+
+        const content = document.getElementById('pollNamesList');
+        content.innerHTML = data.names.map(item => `
+          <div class="card" style="margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <h4 style="color: var(--primary);">${dayLabels[item.dayOfWeek] || item.dayOfWeek}</h4>
+              <button onclick="editPollNames('${item.dayOfWeek}')" style="padding: 6px 12px; background: var(--warning); border: none; color: #000; border-radius: 4px; cursor: pointer; font-size: 12px;">Editar</button>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              ${item.names.map(name => `<span class="badge badge-info">${name}</span>`).join('')}
+            </div>
+          </div>
+        `).join('');
+      } catch (error) {
+        console.error('Error loading poll names:', error);
+      }
+    }
+
+    function showPollSubtab(tab) {
+      document.querySelectorAll('.poll-subtab').forEach(el => el.classList.remove('active'));
+      event.target.classList.add('active');
+
+      if (tab === 'templates') {
+        document.getElementById('pollTemplatesContent').style.display = 'block';
+        document.getElementById('pollNamesContent').style.display = 'none';
+      } else {
+        document.getElementById('pollTemplatesContent').style.display = 'none';
+        document.getElementById('pollNamesContent').style.display = 'block';
+        loadPollNames();
+      }
+    }
+
+    function showCreatePollModal() {
+      document.getElementById('pollModalTitle').textContent = 'Nova Enquete';
+      document.getElementById('pollId').value = '';
+      document.getElementById('pollName').value = '';
+      document.getElementById('pollTargetGroup').value = 'recreio';
+      document.getElementById('pollCustomGroupId').value = '';
+      document.getElementById('customGroupField').style.display = 'none';
+
+      // Clear options and add 3 empty ones
+      const list = document.getElementById('pollOptionsList');
+      list.innerHTML = '';
+      addPollOption('');
+      addPollOption('');
+      addPollOption('');
+
+      document.getElementById('pollModal').style.display = 'block';
+    }
+
+    function editPoll(id) {
+      const poll = currentPolls.find(p => p.id === id);
+      if (!poll) return;
+
+      document.getElementById('pollModalTitle').textContent = 'Editar Enquete';
+      document.getElementById('pollId').value = poll.id;
+      document.getElementById('pollName').value = poll.name;
+      document.getElementById('pollTargetGroup').value = poll.targetGroup;
+      document.getElementById('pollCustomGroupId').value = poll.customGroupId || '';
+      document.getElementById('customGroupField').style.display = poll.targetGroup === 'custom' ? 'block' : 'none';
+
+      const list = document.getElementById('pollOptionsList');
+      list.innerHTML = '';
+      poll.options.forEach(opt => addPollOption(opt));
+
+      document.getElementById('pollModal').style.display = 'block';
+    }
+
+    function closePollModal() {
+      document.getElementById('pollModal').style.display = 'none';
+    }
+
+    function addPollOption(value = '') {
+      const list = document.getElementById('pollOptionsList');
+      const div = document.createElement('div');
+      div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+      div.innerHTML = `
+        <input type="text" class="poll-option" value="${value}" placeholder="Opcao da enquete" style="flex: 1; padding: 10px; border: 2px solid #333; border-radius: 6px; background: var(--bg-dark); color: var(--text);">
+        <button type="button" onclick="this.parentElement.remove()" style="padding: 10px; background: var(--danger); border: none; color: #fff; border-radius: 6px; cursor: pointer;">X</button>
+      `;
+      list.appendChild(div);
+    }
+
+    // Target group change handler
+    document.getElementById('pollTargetGroup').addEventListener('change', function() {
+      document.getElementById('customGroupField').style.display = this.value === 'custom' ? 'block' : 'none';
+    });
+
+    // Poll form submit
+    document.getElementById('pollForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const id = document.getElementById('pollId').value;
+      const options = Array.from(document.querySelectorAll('.poll-option'))
+        .map(input => input.value.trim())
+        .filter(val => val);
+
+      if (options.length < 2) {
+        alert('A enquete precisa ter pelo menos 2 opcoes');
+        return;
+      }
+
+      const data = {
+        name: document.getElementById('pollName').value,
+        targetGroup: document.getElementById('pollTargetGroup').value,
+        customGroupId: document.getElementById('pollCustomGroupId').value || null,
+        options: options,
+        scheduleType: 'manual'
+      };
+
+      try {
+        const response = await fetch('/api/polls' + (id ? '/' + id : ''), {
+          method: id ? 'PUT' : 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+          closePollModal();
+          loadPolls();
+          alert(id ? 'Enquete atualizada!' : 'Enquete criada!');
+        } else {
+          const error = await response.json();
+          alert('Erro: ' + (error.error || 'Falha ao salvar'));
+        }
+      } catch (error) {
+        alert('Erro ao salvar enquete');
+      }
+    });
+
+    async function sendPoll(id) {
+      if (!confirm('Enviar esta enquete agora?')) return;
+
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+
+      try {
+        const response = await fetch('/api/polls/' + id + '/send', {
+          method: 'POST',
+          headers: { 'Authorization': authHeader }
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          alert('Enquete enviada com sucesso!');
+        } else {
+          alert('Erro: ' + (result.error || 'Falha ao enviar'));
+        }
+      } catch (error) {
+        alert('Erro ao enviar enquete');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Enviar';
+      }
+    }
+
+    async function deletePoll(id) {
+      if (!confirm('Tem certeza que deseja excluir esta enquete?')) return;
+
+      try {
+        await fetch('/api/polls/' + id, {
+          method: 'DELETE',
+          headers: { 'Authorization': authHeader }
+        });
+        loadPolls();
+      } catch (error) {
+        alert('Erro ao excluir enquete');
+      }
+    }
+
+    function editPollNames(day) {
+      const item = currentPollNames.find(p => p.dayOfWeek === day);
+      if (!item) return;
+
+      const dayLabels = {
+        'segunda': 'Segunda-feira',
+        'terca': 'Terca-feira',
+        'quarta': 'Quarta-feira',
+        'quinta': 'Quinta-feira',
+        'sexta': 'Sexta-feira',
+        'sabado': 'Sabado'
+      };
+
+      const newNames = prompt(
+        `Editar nomes de ${dayLabels[day]}:\n(separe cada nome por | )`,
+        item.names.join(' | ')
+      );
+
+      if (newNames !== null) {
+        const names = newNames.split('|').map(n => n.trim()).filter(n => n);
+        savePollNames(day, names);
+      }
+    }
+
+    async function savePollNames(day, names) {
+      try {
+        const response = await fetch('/api/poll-names/' + day, {
+          method: 'PUT',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ names })
+        });
+
+        if (response.ok) {
+          loadPollNames();
+          alert('Nomes atualizados!');
+        } else {
+          const error = await response.json();
+          alert('Erro: ' + (error.error || 'Falha ao salvar'));
+        }
+      } catch (error) {
+        alert('Erro ao salvar nomes');
+      }
+    }
+
+    // Update loadAllData to include polls
     async function loadAllData() {
       try {
         await Promise.all([
@@ -1079,6 +1492,7 @@
           loadTodayBookings(),
           loadWeekBookings(),
           loadUnits(),
+          loadPolls(),
           loadQueues(),
           loadReminders()
         ]);
