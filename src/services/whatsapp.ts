@@ -247,6 +247,32 @@ class WhatsAppService {
   isConnectionStable(minUptimeMs: number = 5000): boolean {
     return this.isConnected() && this.getConnectionUptime() >= minUptimeMs;
   }
+
+  /**
+   * Envia mensagem de texto para um destinatário
+   */
+  async sendMessage(to: string, text: string): Promise<boolean> {
+    if (!this.sock || !this.isConnected()) {
+      logger.error(`[WhatsApp] Não conectado, impossível enviar mensagem para ${to}`);
+      return false;
+    }
+
+    try {
+      await this.sock.sendMessage(to, { text });
+      logger.info(`[WhatsApp] Mensagem enviada para ${to}`);
+      return true;
+    } catch (error) {
+      logger.error(`[WhatsApp] Erro ao enviar mensagem para ${to}`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Envia mensagem de texto formatada (Markdown/WhatsApp)
+   */
+  async sendFormattedMessage(to: string, text: string): Promise<boolean> {
+    return this.sendMessage(to, text);
+  }
 }
 
 // Singleton

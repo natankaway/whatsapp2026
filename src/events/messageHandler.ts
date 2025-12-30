@@ -14,6 +14,7 @@ import { commandLoader } from '../commands/loader.js';
 import { menuHandler } from '../handlers/menuHandler.js';
 import { bookingHandler } from '../handlers/bookingHandler.js';
 import { groupHandler } from '../handlers/groupHandler.js';
+import reminderService, { REMINDER_TEMPLATES } from '../services/reminder.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // =============================================================================
@@ -446,6 +447,32 @@ async function handlePrivateMessage(
     sessionManager.setState(from, 'menu');
     sessionManager.clearData(from);
     await sendText(sock, from, CONFIG.menuPrincipal);
+    return;
+  }
+
+  // Processar confirmação/cancelamento de lembrete
+  if (lowerText === 'confirmar') {
+    const result = await reminderService.processConfirmation(from, true);
+    if (result.success) {
+      // Buscar nome do usuário para mensagem personalizada
+      const confirmMessage = REMINDER_TEMPLATES.confirmation_received('');
+      await sendText(sock, from, confirmMessage);
+      logger.info(`[${correlationId}] Presença confirmada por ${from}`);
+    } else {
+      await sendText(sock, from, result.message);
+    }
+    return;
+  }
+
+  if (lowerText === 'cancelar') {
+    const result = await reminderService.processConfirmation(from, false);
+    if (result.success) {
+      const cancelMessage = REMINDER_TEMPLATES.cancellation_received('');
+      await sendText(sock, from, cancelMessage);
+      logger.info(`[${correlationId}] Agendamento cancelado por ${from}`);
+    } else {
+      await sendText(sock, from, result.message);
+    }
     return;
   }
 

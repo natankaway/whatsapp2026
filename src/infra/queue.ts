@@ -3,6 +3,7 @@ import type { BookingDetails } from '../types/index.js';
 import notificationService from '../services/notification.js';
 import backupService from '../services/backup.js';
 import reminderService from '../services/reminder.js';
+import whatsappService from '../services/whatsapp.js';
 import { sqliteService } from '../database/index.js';
 import logger from '../utils/logger.js';
 
@@ -240,10 +241,18 @@ class QueueService {
 
               // Enviar via WhatsApp se tiver telefone
               if (reminder.phone) {
-                // TODO: Integrar com whatsappService.sendMessage
-                logger.info(`[Reminder] Enviando lembrete para ${reminder.phone}: ${reminder.type}`, {
-                  message: reminderMessage.substring(0, 50),
-                });
+                logger.info(`[Reminder] Enviando lembrete para ${reminder.phone}: ${reminder.type}`);
+
+                const messageSent = await whatsappService.sendMessage(
+                  reminder.phone,
+                  reminderMessage
+                );
+
+                if (!messageSent) {
+                  throw new Error('Falha ao enviar mensagem via WhatsApp');
+                }
+              } else {
+                logger.warn(`[Reminder] Lembrete #${reminder.id} sem telefone, marcando como enviado`);
               }
 
               await reminderService.markAsSent(reminder.id);
