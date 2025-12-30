@@ -55,8 +55,8 @@ class DashboardServer {
 
     this.app.use(express.static(publicPath));
 
-    // Fallback para SPA
-    this.app.get('*', (_req: Request, res: Response) => {
+    // Fallback para SPA (compatível com Express 5)
+    this.app.use((_req: Request, res: Response) => {
       if (!fs.existsSync(indexPath)) {
         res.status(404).send('Dashboard não encontrado. Verifique se a pasta public/index.html existe.');
         return;
