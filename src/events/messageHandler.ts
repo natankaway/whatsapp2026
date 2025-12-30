@@ -16,6 +16,7 @@ import { bookingHandler } from '../handlers/bookingHandler.js';
 import { groupHandler } from '../handlers/groupHandler.js';
 import reminderService, { REMINDER_TEMPLATES } from '../services/reminder.js';
 import { v4 as uuidv4 } from 'uuid';
+import { sqliteService } from '../database/index.js';
 
 // =============================================================================
 // CONSTANTES DE CONFIGURAÇÃO
@@ -231,6 +232,35 @@ async function processMessage(
         );
       }
       return;
+    }
+  }
+
+  // ==========================================================================
+  // VERIFICAÇÃO GLOBAL DE PAUSA/HORÁRIO DE FUNCIONAMENTO
+  // ==========================================================================
+  if (!fromMe && !isGroup) {
+    try {
+      const botStatus = sqliteService.shouldBotRespond();
+      if (!botStatus.respond) {
+        // Bot está pausado ou fora do horário - enviar mensagem apenas uma vez por chat
+        const lastGlobalPauseMsg = activeChats.get(`global_pause_${remoteJid}`);
+        const now = Date.now();
+
+        // Enviar mensagem apenas se não enviou nos últimos 30 minutos
+        if (!lastGlobalPauseMsg || (now - lastGlobalPauseMsg) > 30 * 60 * 1000) {
+          activeChats.set(`global_pause_${remoteJid}`, now);
+          logger.info(`[${correlationId}] Bot pausado/fora do horário - ${remoteJid}`);
+          if (botStatus.message) {
+            await sendText(sock, remoteJid, botStatus.message);
+          }
+        } else {
+          logger.debug(`[${correlationId}] Bot pausado - mensagem já enviada recentemente para ${remoteJid}`);
+        }
+        return;
+      }
+    } catch (error) {
+      // Se der erro ao verificar, continuar normalmente
+      logger.debug(`[${correlationId}] Erro ao verificar status global do bot: ${error}`);
     }
   }
 

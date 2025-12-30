@@ -407,6 +407,134 @@
       opacity: 0.8;
     }
 
+    /* Toggle Switch */
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .toggle {
+      position: relative;
+      width: 52px;
+      height: 28px;
+      background: #333;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .toggle.active {
+      background: var(--primary);
+    }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 22px;
+      height: 22px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.3s;
+    }
+
+    .toggle.active::after {
+      transform: translateX(24px);
+    }
+
+    .toggle-label {
+      font-size: 14px;
+    }
+
+    .settings-group {
+      background: var(--bg-dark);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .settings-group h4 {
+      color: var(--primary);
+      margin-bottom: 15px;
+      font-size: 16px;
+    }
+
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #333;
+    }
+
+    .settings-row:last-child {
+      border-bottom: none;
+    }
+
+    .settings-row label {
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .settings-input {
+      padding: 8px 12px;
+      border: 2px solid #333;
+      border-radius: 6px;
+      background: var(--bg-card);
+      color: var(--text);
+      font-size: 14px;
+      width: 120px;
+    }
+
+    .settings-input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .settings-textarea {
+      width: 100%;
+      padding: 10px;
+      border: 2px solid #333;
+      border-radius: 6px;
+      background: var(--bg-card);
+      color: var(--text);
+      font-size: 14px;
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .pause-status {
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .pause-status.active {
+      background: rgba(244, 67, 54, 0.15);
+      border: 1px solid var(--danger);
+    }
+
+    .pause-status.inactive {
+      background: rgba(76, 175, 80, 0.15);
+      border: 1px solid var(--success);
+    }
+
+    .day-checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-right: 10px;
+      margin-bottom: 5px;
+    }
+
+    .day-checkbox input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--primary);
+    }
+
     @media (max-width: 768px) {
       .header {
         flex-direction: column;
@@ -534,6 +662,7 @@
         <button class="tab" onclick="showTab('manage')">Gerenciar</button>
         <button class="tab" onclick="showTab('units')">Unidades</button>
         <button class="tab" onclick="showTab('polls')">Enquetes</button>
+        <button class="tab" onclick="showTab('settings')">Configuracoes</button>
         <button class="tab" onclick="showTab('queues')">Filas</button>
         <button class="tab" onclick="showTab('reminders')">Lembretes</button>
       </div>
@@ -789,6 +918,91 @@
               </div>
             </form>
           </div>
+        </div>
+      </div>
+
+      <!-- Settings Tab -->
+      <div id="settingsTab" class="section" style="display: none;">
+        <div class="section-header">
+          <h2 class="section-title">Configuracoes Gerais</h2>
+          <button onclick="saveSettings()" class="btn" style="width: auto; padding: 10px 20px;">Salvar Alteracoes</button>
+        </div>
+
+        <!-- Bot Status -->
+        <div id="pauseStatusBox" class="pause-status inactive">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <strong id="pauseStatusText">Bot Ativo</strong>
+              <p id="pauseStatusInfo" style="margin-top: 5px; font-size: 13px; color: var(--text-muted);"></p>
+            </div>
+            <button id="pauseToggleBtn" onclick="toggleBotPause()" class="btn" style="width: auto; padding: 10px 20px; background: var(--danger);">Pausar Bot</button>
+          </div>
+        </div>
+
+        <!-- Pause Settings -->
+        <div class="settings-group">
+          <h4>Pausa do Bot</h4>
+          <div class="settings-row">
+            <label>Motivo da pausa (opcional)</label>
+            <input type="text" id="settingPauseReason" class="settings-input" style="width: 300px;" placeholder="Ex: Manutencao programada">
+          </div>
+          <div style="margin-top: 15px;">
+            <label style="display: block; margin-bottom: 8px; color: var(--text-muted);">Mensagem exibida quando pausado:</label>
+            <textarea id="settingPausedMessage" class="settings-textarea" rows="2"></textarea>
+          </div>
+        </div>
+
+        <!-- Working Hours Settings -->
+        <div class="settings-group">
+          <h4>Horario de Funcionamento</h4>
+
+          <div class="settings-row">
+            <label>Ativar horario de funcionamento</label>
+            <div class="toggle-container">
+              <div id="workingHoursToggle" class="toggle" onclick="toggleWorkingHours()"></div>
+              <span class="toggle-label" id="workingHoursLabel">Desativado</span>
+            </div>
+          </div>
+
+          <div id="workingHoursFields" style="margin-top: 15px;">
+            <div class="settings-row">
+              <label>Horario de inicio</label>
+              <input type="time" id="settingWorkingStart" class="settings-input" value="06:00">
+            </div>
+            <div class="settings-row">
+              <label>Horario de fim</label>
+              <input type="time" id="settingWorkingEnd" class="settings-input" value="22:00">
+            </div>
+
+            <div style="margin-top: 15px;">
+              <label style="display: block; margin-bottom: 10px; color: var(--text-muted);">Dias de funcionamento:</label>
+              <div id="workingDaysCheckboxes">
+                <label class="day-checkbox"><input type="checkbox" value="0" id="day0"> Dom</label>
+                <label class="day-checkbox"><input type="checkbox" value="1" id="day1" checked> Seg</label>
+                <label class="day-checkbox"><input type="checkbox" value="2" id="day2" checked> Ter</label>
+                <label class="day-checkbox"><input type="checkbox" value="3" id="day3" checked> Qua</label>
+                <label class="day-checkbox"><input type="checkbox" value="4" id="day4" checked> Qui</label>
+                <label class="day-checkbox"><input type="checkbox" value="5" id="day5" checked> Sex</label>
+                <label class="day-checkbox"><input type="checkbox" value="6" id="day6" checked> Sab</label>
+              </div>
+            </div>
+
+            <div style="margin-top: 15px;">
+              <label style="display: block; margin-bottom: 8px; color: var(--text-muted);">Mensagem fora do horario:</label>
+              <textarea id="settingOutsideHoursMessage" class="settings-textarea" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Info Box -->
+        <div style="background: rgba(33, 150, 243, 0.1); border: 1px solid var(--info); border-radius: 8px; padding: 15px; margin-top: 20px;">
+          <strong style="color: var(--info);">Como funciona:</strong>
+          <ul style="margin-top: 10px; padding-left: 20px; color: var(--text-muted); font-size: 13px;">
+            <li><strong>Pausar Bot:</strong> O bot para de responder todas as mensagens ate ser retomado.</li>
+            <li><strong>Horario de Funcionamento:</strong> O bot so responde dentro dos horarios e dias configurados.</li>
+            <li>Quando o bot nao responde, ele envia a mensagem configurada para o usuario.</li>
+            <li>O atendente pode continuar respondendo manualmente mesmo com o bot pausado.</li>
+          </ul>
         </div>
       </div>
 
@@ -1720,7 +1934,172 @@
       }
     }
 
-    // Update loadAllData to include polls and stats
+    // =========================================================================
+    // SETTINGS MANAGEMENT
+    // =========================================================================
+
+    let currentSettings = {};
+
+    async function loadSettings() {
+      try {
+        const data = await fetchApi('/settings');
+        currentSettings = data;
+        updateSettingsUI(data);
+      } catch (error) {
+        console.error('Error loading settings:', error);
+      }
+    }
+
+    function updateSettingsUI(settings) {
+      // Pause status
+      const pauseBox = document.getElementById('pauseStatusBox');
+      const pauseText = document.getElementById('pauseStatusText');
+      const pauseInfo = document.getElementById('pauseStatusInfo');
+      const pauseBtn = document.getElementById('pauseToggleBtn');
+
+      if (settings.botPaused) {
+        pauseBox.className = 'pause-status active';
+        pauseText.textContent = 'Bot Pausado';
+        pauseInfo.textContent = settings.pauseReason
+          ? `Motivo: ${settings.pauseReason}` + (settings.pausedAt ? ` | Desde: ${formatDateTime(settings.pausedAt)}` : '')
+          : settings.pausedAt ? `Desde: ${formatDateTime(settings.pausedAt)}` : '';
+        pauseBtn.textContent = 'Retomar Bot';
+        pauseBtn.style.background = 'var(--success)';
+      } else {
+        pauseBox.className = 'pause-status inactive';
+        pauseText.textContent = 'Bot Ativo';
+        pauseInfo.textContent = 'O bot esta respondendo normalmente.';
+        pauseBtn.textContent = 'Pausar Bot';
+        pauseBtn.style.background = 'var(--danger)';
+      }
+
+      // Pause settings
+      document.getElementById('settingPauseReason').value = settings.pauseReason || '';
+      document.getElementById('settingPausedMessage').value = settings.pausedMessage || '';
+
+      // Working hours toggle
+      const toggle = document.getElementById('workingHoursToggle');
+      const label = document.getElementById('workingHoursLabel');
+      if (settings.workingHoursEnabled) {
+        toggle.classList.add('active');
+        label.textContent = 'Ativado';
+      } else {
+        toggle.classList.remove('active');
+        label.textContent = 'Desativado';
+      }
+
+      // Working hours fields
+      document.getElementById('settingWorkingStart').value = settings.workingHoursStart || '06:00';
+      document.getElementById('settingWorkingEnd').value = settings.workingHoursEnd || '22:00';
+      document.getElementById('settingOutsideHoursMessage').value = settings.outsideHoursMessage || '';
+
+      // Working days checkboxes
+      const days = settings.workingDays || [1, 2, 3, 4, 5, 6];
+      for (let i = 0; i <= 6; i++) {
+        const checkbox = document.getElementById('day' + i);
+        if (checkbox) {
+          checkbox.checked = days.includes(i);
+        }
+      }
+    }
+
+    async function toggleBotPause() {
+      const btn = document.getElementById('pauseToggleBtn');
+      btn.disabled = true;
+
+      try {
+        if (currentSettings.botPaused) {
+          // Resume bot
+          await fetch('/api/settings/resume', {
+            method: 'POST',
+            headers: { 'Authorization': authHeader }
+          });
+          alert('Bot retomado com sucesso!');
+        } else {
+          // Pause bot
+          const reason = document.getElementById('settingPauseReason').value;
+          await fetch('/api/settings/pause', {
+            method: 'POST',
+            headers: {
+              'Authorization': authHeader,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ reason })
+          });
+          alert('Bot pausado!');
+        }
+        loadSettings();
+      } catch (error) {
+        console.error('Error toggling pause:', error);
+        alert('Erro ao alterar status do bot');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function toggleWorkingHours() {
+      const toggle = document.getElementById('workingHoursToggle');
+      const label = document.getElementById('workingHoursLabel');
+      toggle.classList.toggle('active');
+      label.textContent = toggle.classList.contains('active') ? 'Ativado' : 'Desativado';
+    }
+
+    async function saveSettings() {
+      const workingDays = [];
+      for (let i = 0; i <= 6; i++) {
+        const checkbox = document.getElementById('day' + i);
+        if (checkbox && checkbox.checked) {
+          workingDays.push(i);
+        }
+      }
+
+      const settings = {
+        pauseReason: document.getElementById('settingPauseReason').value,
+        pausedMessage: document.getElementById('settingPausedMessage').value,
+        workingHoursEnabled: document.getElementById('workingHoursToggle').classList.contains('active'),
+        workingHoursStart: document.getElementById('settingWorkingStart').value,
+        workingHoursEnd: document.getElementById('settingWorkingEnd').value,
+        workingDays: workingDays,
+        outsideHoursMessage: document.getElementById('settingOutsideHoursMessage').value
+      };
+
+      try {
+        const response = await fetch('/api/settings', {
+          method: 'PUT',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(settings)
+        });
+
+        if (response.ok) {
+          alert('Configuracoes salvas com sucesso!');
+          loadSettings();
+        } else {
+          const error = await response.json();
+          alert('Erro: ' + (error.error || 'Falha ao salvar'));
+        }
+      } catch (error) {
+        console.error('Error saving settings:', error);
+        alert('Erro ao salvar configuracoes');
+      }
+    }
+
+    function formatDateTime(isoStr) {
+      try {
+        const date = new Date(isoStr);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${day}/${month} ${hours}:${minutes}`;
+      } catch {
+        return isoStr;
+      }
+    }
+
+    // Update loadAllData to include settings
     async function loadAllData() {
       try {
         await Promise.all([
@@ -1729,6 +2108,7 @@
           loadWeekBookings(),
           loadUnits(),
           loadPolls(),
+          loadSettings(),
           loadBookingStats(),
           loadQueues(),
           loadReminders()

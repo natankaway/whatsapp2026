@@ -64,6 +64,25 @@ interface PollNameRecordRaw {
   isActive: number;
 }
 
+export interface SettingsRecord {
+  key: string;
+  value: string;
+  updatedAt: string;
+}
+
+export interface BotSettings {
+  botPaused: boolean;
+  pauseReason?: string;
+  pausedAt?: string;
+  pausedBy?: string;
+  workingHoursEnabled: boolean;
+  workingHoursStart: string; // HH:MM
+  workingHoursEnd: string; // HH:MM
+  workingDays: number[]; // 0-6 (domingo-sábado)
+  outsideHoursMessage: string;
+  pausedMessage: string;
+}
+
 export interface UnitRecord {
   id?: number;
   slug: string;
@@ -318,6 +337,37 @@ class SQLiteService {
           const stmt = db.prepare('INSERT OR IGNORE INTO poll_names (day_of_week, names) VALUES (?, ?)');
           for (const item of defaultNames) {
             stmt.run(item.day, JSON.stringify(item.names));
+          }
+        },
+      },
+      {
+        name: '007_create_settings_table',
+        up: (db) => {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS settings (
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL,
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          // Seed default settings
+          const defaultSettings = [
+            { key: 'botPaused', value: 'false' },
+            { key: 'pauseReason', value: '' },
+            { key: 'pausedAt', value: '' },
+            { key: 'pausedBy', value: '' },
+            { key: 'workingHoursEnabled', value: 'false' },
+            { key: 'workingHoursStart', value: '06:00' },
+            { key: 'workingHoursEnd', value: '22:00' },
+            { key: 'workingDays', value: '[1,2,3,4,5,6]' },
+            { key: 'outsideHoursMessage', value: 'Estamos fora do horário de atendimento. Retornaremos em breve!' },
+            { key: 'pausedMessage', value: 'O bot está temporariamente pausado. Por favor, aguarde.' },
+          ];
+
+          const stmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+          for (const setting of defaultSettings) {
+            stmt.run(setting.key, setting.value);
           }
         },
       },
@@ -1099,6 +1149,141 @@ class SQLiteService {
       names: JSON.parse(row.names || '[]'),
       isActive: row.isActive === 1,
     };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE CONFIGURAÇÕES
+  // ===========================================================================
+
+  getSetting(key: string): string | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('SELECT value FROM settings WHERE key = ?');
+    const row = stmt.get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setSetting(key: string, value: string): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+      `);
+      stmt.run(key, value);
+      return true;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao salvar configuração ${key}`, error);
+      return false;
+    }
+  }
+
+  getAllSettings(): Record<string, string> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('SELECT key, value FROM settings');
+    const rows = stmt.all() as Array<{ key: string; value: string }>;
+
+    const settings: Record<string, string> = {};
+    for (const row of rows) {
+      settings[row.key] = row.value;
+    }
+    return settings;
+  }
+
+  getBotSettings(): BotSettings {
+    const settings = this.getAllSettings();
+
+    return {
+      botPaused: settings.botPaused === 'true',
+      pauseReason: settings.pauseReason || undefined,
+      pausedAt: settings.pausedAt || undefined,
+      pausedBy: settings.pausedBy || undefined,
+      workingHoursEnabled: settings.workingHoursEnabled === 'true',
+      workingHoursStart: settings.workingHoursStart || '06:00',
+      workingHoursEnd: settings.workingHoursEnd || '22:00',
+      workingDays: JSON.parse(settings.workingDays || '[1,2,3,4,5,6]'),
+      outsideHoursMessage: settings.outsideHoursMessage || 'Estamos fora do horário de atendimento.',
+      pausedMessage: settings.pausedMessage || 'O bot está temporariamente pausado.',
+    };
+  }
+
+  updateBotSettings(updates: Partial<BotSettings>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const transaction = this.db.transaction(() => {
+        if (updates.botPaused !== undefined) {
+          this.setSetting('botPaused', String(updates.botPaused));
+        }
+        if (updates.pauseReason !== undefined) {
+          this.setSetting('pauseReason', updates.pauseReason);
+        }
+        if (updates.pausedAt !== undefined) {
+          this.setSetting('pausedAt', updates.pausedAt);
+        }
+        if (updates.pausedBy !== undefined) {
+          this.setSetting('pausedBy', updates.pausedBy);
+        }
+        if (updates.workingHoursEnabled !== undefined) {
+          this.setSetting('workingHoursEnabled', String(updates.workingHoursEnabled));
+        }
+        if (updates.workingHoursStart !== undefined) {
+          this.setSetting('workingHoursStart', updates.workingHoursStart);
+        }
+        if (updates.workingHoursEnd !== undefined) {
+          this.setSetting('workingHoursEnd', updates.workingHoursEnd);
+        }
+        if (updates.workingDays !== undefined) {
+          this.setSetting('workingDays', JSON.stringify(updates.workingDays));
+        }
+        if (updates.outsideHoursMessage !== undefined) {
+          this.setSetting('outsideHoursMessage', updates.outsideHoursMessage);
+        }
+        if (updates.pausedMessage !== undefined) {
+          this.setSetting('pausedMessage', updates.pausedMessage);
+        }
+      });
+
+      transaction();
+      logger.info('[SQLite] Configurações do bot atualizadas');
+      return true;
+    } catch (error) {
+      logger.error('[SQLite] Erro ao atualizar configurações do bot', error);
+      return false;
+    }
+  }
+
+  /**
+   * Verifica se o bot deve responder com base nas configurações
+   */
+  shouldBotRespond(): { respond: boolean; message?: string } {
+    const settings = this.getBotSettings();
+
+    // Verificar se bot está pausado globalmente
+    if (settings.botPaused) {
+      return { respond: false, message: settings.pausedMessage };
+    }
+
+    // Verificar horário de funcionamento
+    if (settings.workingHoursEnabled) {
+      const now = new Date();
+      const currentDay = now.getDay();
+      const currentTime = now.toTimeString().slice(0, 5); // HH:MM
+
+      // Verificar dia da semana
+      if (!settings.workingDays.includes(currentDay)) {
+        return { respond: false, message: settings.outsideHoursMessage };
+      }
+
+      // Verificar horário
+      if (currentTime < settings.workingHoursStart || currentTime > settings.workingHoursEnd) {
+        return { respond: false, message: settings.outsideHoursMessage };
+      }
+    }
+
+    return { respond: true };
   }
 
   // ===========================================================================

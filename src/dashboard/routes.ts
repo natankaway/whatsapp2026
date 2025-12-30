@@ -946,6 +946,114 @@ export function createDashboardRoutes(): Router {
     }
   });
 
+  // ===========================================================================
+  // SETTINGS (Configurações Gerais)
+  // ===========================================================================
+
+  router.get('/settings', (_req: Request, res: Response) => {
+    try {
+      const settings = sqliteService.getBotSettings();
+      res.json(settings);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao obter configurações', error);
+      res.status(500).json({ error: 'Erro ao obter configurações' });
+    }
+  });
+
+  router.put('/settings', (req: Request, res: Response) => {
+    try {
+      const updates = req.body;
+
+      // Se está pausando o bot, registrar quando e por quem
+      if (updates.botPaused === true) {
+        updates.pausedAt = new Date().toISOString();
+        updates.pausedBy = 'dashboard';
+      } else if (updates.botPaused === false) {
+        updates.pauseReason = '';
+        updates.pausedAt = '';
+        updates.pausedBy = '';
+      }
+
+      const success = sqliteService.updateBotSettings(updates);
+
+      if (success) {
+        logger.info('[Dashboard] Configurações atualizadas');
+        const newSettings = sqliteService.getBotSettings();
+        res.json(newSettings);
+      } else {
+        res.status(500).json({ error: 'Erro ao atualizar configurações' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar configurações', error);
+      res.status(500).json({ error: 'Erro ao atualizar configurações' });
+    }
+  });
+
+  // Pausar/Despausar bot rapidamente
+  router.post('/settings/pause', (req: Request, res: Response) => {
+    try {
+      const { reason } = req.body;
+
+      const success = sqliteService.updateBotSettings({
+        botPaused: true,
+        pauseReason: reason || 'Pausado via dashboard',
+        pausedAt: new Date().toISOString(),
+        pausedBy: 'dashboard',
+      });
+
+      if (success) {
+        logger.info(`[Dashboard] Bot pausado: ${reason || 'Sem motivo'}`);
+        res.json({ success: true, message: 'Bot pausado' });
+      } else {
+        res.status(500).json({ error: 'Erro ao pausar bot' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao pausar bot', error);
+      res.status(500).json({ error: 'Erro ao pausar bot' });
+    }
+  });
+
+  router.post('/settings/resume', (_req: Request, res: Response) => {
+    try {
+      const success = sqliteService.updateBotSettings({
+        botPaused: false,
+        pauseReason: '',
+        pausedAt: '',
+        pausedBy: '',
+      });
+
+      if (success) {
+        logger.info('[Dashboard] Bot retomado');
+        res.json({ success: true, message: 'Bot retomado' });
+      } else {
+        res.status(500).json({ error: 'Erro ao retomar bot' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao retomar bot', error);
+      res.status(500).json({ error: 'Erro ao retomar bot' });
+    }
+  });
+
+  // Verificar status do bot (útil para messageHandler)
+  router.get('/settings/bot-status', (_req: Request, res: Response) => {
+    try {
+      const status = sqliteService.shouldBotRespond();
+      const settings = sqliteService.getBotSettings();
+
+      res.json({
+        shouldRespond: status.respond,
+        message: status.message,
+        botPaused: settings.botPaused,
+        pauseReason: settings.pauseReason,
+        pausedAt: settings.pausedAt,
+        workingHoursEnabled: settings.workingHoursEnabled,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao verificar status do bot', error);
+      res.status(500).json({ error: 'Erro ao verificar status' });
+    }
+  });
+
   return router;
 }
 
