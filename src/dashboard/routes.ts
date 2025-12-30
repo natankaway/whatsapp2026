@@ -186,6 +186,285 @@ export function createDashboardRoutes(): Router {
     }
   });
 
+  // Buscar agendamentos por periodo
+  router.get('/bookings/range', (req: Request, res: Response) => {
+    try {
+      const { unit, startDate, endDate } = req.query;
+
+      if (!startDate || !endDate) {
+        res.status(400).json({ error: 'Parametros startDate e endDate sao obrigatorios' });
+        return;
+      }
+
+      const start = new Date(startDate as string);
+      const end = new Date(endDate as string);
+      const allBookings: Array<{
+        id: number;
+        unit: string;
+        date: string;
+        time: string;
+        name: string;
+        phone?: string;
+        companion?: string;
+        createdAt: string;
+      }> = [];
+
+      // Iterar por cada dia no range
+      const current = new Date(start);
+      while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0] ?? '';
+
+        if (!unit || unit === 'recreio') {
+          const recreio = sqliteService.getBookingsByDate('recreio', dateStr);
+          allBookings.push(...recreio.map(b => ({ ...b, id: b.id ?? 0 })));
+        }
+        if (!unit || unit === 'bangu') {
+          const bangu = sqliteService.getBookingsByDate('bangu', dateStr);
+          allBookings.push(...bangu.map(b => ({ ...b, id: b.id ?? 0 })));
+        }
+
+        current.setDate(current.getDate() + 1);
+      }
+
+      // Ordenar por data e hora
+      allBookings.sort((a, b) => {
+        const dateCompare = a.date.localeCompare(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        return a.time.localeCompare(b.time);
+      });
+
+      res.json({
+        startDate,
+        endDate,
+        unit: unit || 'todas',
+        total: allBookings.length,
+        bookings: allBookings,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar agendamentos por periodo', error);
+      res.status(500).json({ error: 'Erro ao buscar agendamentos' });
+    }
+  });
+
+  // Buscar agendamentos por nome ou telefone
+  router.get('/bookings/search', (req: Request, res: Response) => {
+    try {
+      const { query, unit } = req.query;
+
+      if (!query || (query as string).length < 2) {
+        res.status(400).json({ error: 'Query deve ter pelo menos 2 caracteres' });
+        return;
+      }
+
+      const searchTerm = (query as string).toLowerCase();
+
+      // Buscar nos ultimos 30 dias e proximos 30 dias
+      const today = new Date();
+      const start = new Date(today);
+      start.setDate(today.getDate() - 30);
+      const end = new Date(today);
+      end.setDate(today.getDate() + 30);
+
+      const results: Array<{
+        id: number;
+        unit: string;
+        date: string;
+        time: string;
+        name: string;
+        phone?: string;
+        companion?: string;
+      }> = [];
+
+      const current = new Date(start);
+      while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0] ?? '';
+
+        if (!unit || unit === 'recreio') {
+          const recreio = sqliteService.getBookingsByDate('recreio', dateStr);
+          results.push(...recreio
+            .filter(b =>
+              b.name.toLowerCase().includes(searchTerm) ||
+              (b.phone && b.phone.includes(searchTerm)) ||
+              (b.companion && b.companion.toLowerCase().includes(searchTerm))
+            )
+            .map(b => ({ ...b, id: b.id ?? 0 }))
+          );
+        }
+        if (!unit || unit === 'bangu') {
+          const bangu = sqliteService.getBookingsByDate('bangu', dateStr);
+          results.push(...bangu
+            .filter(b =>
+              b.name.toLowerCase().includes(searchTerm) ||
+              (b.phone && b.phone.includes(searchTerm)) ||
+              (b.companion && b.companion.toLowerCase().includes(searchTerm))
+            )
+            .map(b => ({ ...b, id: b.id ?? 0 }))
+          );
+        }
+
+        current.setDate(current.getDate() + 1);
+      }
+
+      // Ordenar por data
+      results.sort((a, b) => b.date.localeCompare(a.date));
+
+      res.json({
+        query,
+        total: results.length,
+        bookings: results,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar agendamentos', error);
+      res.status(500).json({ error: 'Erro ao buscar agendamentos' });
+    }
+  });
+
+  // Exportar agendamentos como CSV
+  router.get('/bookings/export', (req: Request, res: Response) => {
+    try {
+      const { unit, startDate, endDate } = req.query;
+
+      const start = startDate ? new Date(startDate as string) : new Date();
+      const end = endDate ? new Date(endDate as string) : new Date();
+
+      // Se nao tiver datas, pegar mes atual
+      if (!startDate) {
+        start.setDate(1);
+      }
+      if (!endDate) {
+        end.setMonth(end.getMonth() + 1);
+        end.setDate(0);
+      }
+
+      const allBookings: Array<{
+        unit: string;
+        date: string;
+        time: string;
+        name: string;
+        phone: string;
+        companion: string;
+        createdAt: string;
+      }> = [];
+
+      const current = new Date(start);
+      while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0] ?? '';
+
+        if (!unit || unit === 'recreio') {
+          const recreio = sqliteService.getBookingsByDate('recreio', dateStr);
+          allBookings.push(...recreio.map(b => ({
+            unit: 'Recreio',
+            date: b.date,
+            time: b.time,
+            name: b.name,
+            phone: b.phone || '',
+            companion: b.companion || '',
+            createdAt: b.createdAt,
+          })));
+        }
+        if (!unit || unit === 'bangu') {
+          const bangu = sqliteService.getBookingsByDate('bangu', dateStr);
+          allBookings.push(...bangu.map(b => ({
+            unit: 'Bangu',
+            date: b.date,
+            time: b.time,
+            name: b.name,
+            phone: b.phone || '',
+            companion: b.companion || '',
+            createdAt: b.createdAt,
+          })));
+        }
+
+        current.setDate(current.getDate() + 1);
+      }
+
+      // Ordenar por data e hora
+      allBookings.sort((a, b) => {
+        const dateCompare = a.date.localeCompare(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        return a.time.localeCompare(b.time);
+      });
+
+      // Gerar CSV
+      const headers = ['Unidade', 'Data', 'Horario', 'Nome', 'Telefone', 'Acompanhante', 'Criado em'];
+      const csvRows = [headers.join(';')];
+
+      for (const booking of allBookings) {
+        const row = [
+          booking.unit,
+          formatDateBR(booking.date),
+          booking.time,
+          `"${booking.name}"`,
+          booking.phone,
+          `"${booking.companion}"`,
+          formatDateTimeBR(booking.createdAt),
+        ];
+        csvRows.push(row.join(';'));
+      }
+
+      const csv = csvRows.join('\n');
+      const filename = `agendamentos_${start.toISOString().split('T')[0]}_${end.toISOString().split('T')[0]}.csv`;
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send('\uFEFF' + csv); // BOM para Excel reconhecer UTF-8
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao exportar agendamentos', error);
+      res.status(500).json({ error: 'Erro ao exportar agendamentos' });
+    }
+  });
+
+  // Estatisticas de agendamentos
+  router.get('/bookings/stats', (req: Request, res: Response) => {
+    try {
+      const { days = '30' } = req.query;
+      const numDays = parseInt(days as string, 10) || 30;
+
+      const today = new Date();
+      const stats = {
+        recreio: { total: 0, byTime: {} as Record<string, number> },
+        bangu: { total: 0, byTime: {} as Record<string, number> },
+        byDay: {} as Record<string, { recreio: number; bangu: number; total: number }>,
+        totalGeral: 0,
+      };
+
+      for (let i = 0; i < numDays; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0] ?? '';
+
+        const recreio = sqliteService.getBookingsByDate('recreio', dateStr);
+        const bangu = sqliteService.getBookingsByDate('bangu', dateStr);
+
+        stats.recreio.total += recreio.length;
+        stats.bangu.total += bangu.length;
+        stats.totalGeral += recreio.length + bangu.length;
+
+        stats.byDay[dateStr] = {
+          recreio: recreio.length,
+          bangu: bangu.length,
+          total: recreio.length + bangu.length,
+        };
+
+        // Contagem por horario
+        for (const b of recreio) {
+          stats.recreio.byTime[b.time] = (stats.recreio.byTime[b.time] || 0) + 1;
+        }
+        for (const b of bangu) {
+          stats.bangu.byTime[b.time] = (stats.bangu.byTime[b.time] || 0) + 1;
+        }
+      }
+
+      res.json({
+        period: `Ultimos ${numDays} dias`,
+        ...stats,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao obter estatisticas', error);
+      res.status(500).json({ error: 'Erro ao obter estatisticas' });
+    }
+  });
+
   // ===========================================================================
   // REMINDERS
   // ===========================================================================
@@ -690,4 +969,23 @@ function formatUptime(ms: number): string {
     return `${minutes}m ${seconds % 60}s`;
   }
   return `${seconds}s`;
+}
+
+function formatDateBR(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function formatDateTimeBR(isoStr: string): string {
+  try {
+    const date = new Date(isoStr);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  } catch {
+    return isoStr;
+  }
 }

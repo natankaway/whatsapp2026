@@ -529,8 +529,9 @@
 
       <!-- Tabs -->
       <div class="tabs">
-        <button class="tab active" onclick="showTab('bookings')">Agendamentos</button>
+        <button class="tab active" onclick="showTab('bookings')">Hoje</button>
         <button class="tab" onclick="showTab('week')">Semana</button>
+        <button class="tab" onclick="showTab('manage')">Gerenciar</button>
         <button class="tab" onclick="showTab('units')">Unidades</button>
         <button class="tab" onclick="showTab('polls')">Enquetes</button>
         <button class="tab" onclick="showTab('queues')">Filas</button>
@@ -578,6 +579,80 @@
             <tr><td colspan="5" class="loading">Carregando...</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Manage Bookings Tab -->
+      <div id="manageTab" class="section" style="display: none;">
+        <div class="section-header">
+          <h2 class="section-title">Gerenciar Agendamentos</h2>
+        </div>
+
+        <!-- Search and Filters -->
+        <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; padding: 20px; background: var(--bg-dark); border-radius: 8px;">
+          <!-- Search -->
+          <div style="flex: 1; min-width: 200px;">
+            <label style="display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 12px;">Buscar por nome/telefone</label>
+            <div style="display: flex; gap: 5px;">
+              <input type="text" id="searchQuery" placeholder="Digite para buscar..." style="flex: 1; padding: 10px; border: 2px solid #333; border-radius: 6px; background: var(--bg-card); color: var(--text);">
+              <button onclick="searchBookings()" style="padding: 10px 15px; background: var(--primary); border: none; color: #fff; border-radius: 6px; cursor: pointer;">Buscar</button>
+            </div>
+          </div>
+
+          <!-- Date Range -->
+          <div style="min-width: 150px;">
+            <label style="display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 12px;">Data Inicio</label>
+            <input type="date" id="filterStartDate" style="width: 100%; padding: 10px; border: 2px solid #333; border-radius: 6px; background: var(--bg-card); color: var(--text);">
+          </div>
+          <div style="min-width: 150px;">
+            <label style="display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 12px;">Data Fim</label>
+            <input type="date" id="filterEndDate" style="width: 100%; padding: 10px; border: 2px solid #333; border-radius: 6px; background: var(--bg-card); color: var(--text);">
+          </div>
+
+          <!-- Unit Filter -->
+          <div style="min-width: 120px;">
+            <label style="display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 12px;">Unidade</label>
+            <select id="filterUnit" style="width: 100%; padding: 10px; border: 2px solid #333; border-radius: 6px; background: var(--bg-card); color: var(--text);">
+              <option value="">Todas</option>
+              <option value="recreio">Recreio</option>
+              <option value="bangu">Bangu</option>
+            </select>
+          </div>
+
+          <!-- Action Buttons -->
+          <div style="display: flex; align-items: flex-end; gap: 10px;">
+            <button onclick="filterBookings()" class="refresh-btn">Filtrar</button>
+            <button onclick="exportBookings()" style="padding: 10px 15px; background: var(--success); border: none; color: #fff; border-radius: 6px; cursor: pointer;">Exportar CSV</button>
+          </div>
+        </div>
+
+        <!-- Results Info -->
+        <div id="manageResultsInfo" style="margin-bottom: 15px; color: var(--text-muted);"></div>
+
+        <!-- Results Table -->
+        <div style="overflow-x: auto;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Unidade</th>
+                <th>Data</th>
+                <th>Horario</th>
+                <th>Nome</th>
+                <th>Telefone</th>
+                <th>Acompanhante</th>
+                <th>Acoes</th>
+              </tr>
+            </thead>
+            <tbody id="manageTable">
+              <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Use os filtros acima para buscar agendamentos</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Stats Section -->
+        <div style="margin-top: 30px;">
+          <h3 style="margin-bottom: 15px;">Estatisticas (Ultimos 30 dias)</h3>
+          <div id="bookingStats" class="cards-grid"></div>
+        </div>
       </div>
 
       <!-- Units Tab -->
@@ -1194,6 +1269,167 @@
     });
 
     // =========================================================================
+    // BOOKING MANAGEMENT
+    // =========================================================================
+
+    // Set default dates
+    document.addEventListener('DOMContentLoaded', function() {
+      const today = new Date();
+      const weekAgo = new Date(today);
+      weekAgo.setDate(today.getDate() - 7);
+
+      document.getElementById('filterStartDate').value = weekAgo.toISOString().split('T')[0];
+      document.getElementById('filterEndDate').value = today.toISOString().split('T')[0];
+    });
+
+    async function searchBookings() {
+      const query = document.getElementById('searchQuery').value.trim();
+      if (query.length < 2) {
+        alert('Digite pelo menos 2 caracteres para buscar');
+        return;
+      }
+
+      const unit = document.getElementById('filterUnit').value;
+
+      try {
+        let url = '/api/bookings/search?query=' + encodeURIComponent(query);
+        if (unit) url += '&unit=' + unit;
+
+        const data = await fetchApi(url.replace('/api', ''));
+        displayManageResults(data.bookings, `${data.total} resultado(s) para "${query}"`);
+      } catch (error) {
+        console.error('Error searching bookings:', error);
+        alert('Erro ao buscar agendamentos');
+      }
+    }
+
+    async function filterBookings() {
+      const startDate = document.getElementById('filterStartDate').value;
+      const endDate = document.getElementById('filterEndDate').value;
+      const unit = document.getElementById('filterUnit').value;
+
+      if (!startDate || !endDate) {
+        alert('Selecione as datas de inicio e fim');
+        return;
+      }
+
+      try {
+        let url = '/api/bookings/range?startDate=' + startDate + '&endDate=' + endDate;
+        if (unit) url += '&unit=' + unit;
+
+        const data = await fetchApi(url.replace('/api', ''));
+        displayManageResults(data.bookings, `${data.total} agendamento(s) de ${formatDateDisplay(startDate)} a ${formatDateDisplay(endDate)}`);
+      } catch (error) {
+        console.error('Error filtering bookings:', error);
+        alert('Erro ao filtrar agendamentos');
+      }
+    }
+
+    function displayManageResults(bookings, infoText) {
+      document.getElementById('manageResultsInfo').textContent = infoText;
+
+      const tbody = document.getElementById('manageTable');
+      if (bookings.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Nenhum agendamento encontrado</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = bookings.map(b => `
+        <tr>
+          <td><span class="badge badge-info">${b.unit === 'recreio' ? 'Recreio' : 'Bangu'}</span></td>
+          <td>${formatDateDisplay(b.date)}</td>
+          <td>${b.time}</td>
+          <td>${b.name}</td>
+          <td>${b.phone || '-'}</td>
+          <td>${b.companion || '-'}</td>
+          <td><button class="delete-btn" onclick="deleteBookingFromManage(${b.id})">Cancelar</button></td>
+        </tr>
+      `).join('');
+    }
+
+    async function deleteBookingFromManage(id) {
+      if (!confirm('Tem certeza que deseja cancelar este agendamento?')) return;
+
+      try {
+        await fetch('/api/bookings/' + id, {
+          method: 'DELETE',
+          headers: { 'Authorization': authHeader }
+        });
+        alert('Agendamento cancelado!');
+        // Refresh the current filter
+        filterBookings();
+        loadTodayBookings();
+      } catch (error) {
+        alert('Erro ao cancelar agendamento');
+      }
+    }
+
+    function exportBookings() {
+      const startDate = document.getElementById('filterStartDate').value;
+      const endDate = document.getElementById('filterEndDate').value;
+      const unit = document.getElementById('filterUnit').value;
+
+      let url = '/api/bookings/export?';
+      if (startDate) url += 'startDate=' + startDate + '&';
+      if (endDate) url += 'endDate=' + endDate + '&';
+      if (unit) url += 'unit=' + unit;
+
+      // Add auth header via fetch and trigger download
+      fetch(url, {
+        headers: { 'Authorization': authHeader }
+      })
+      .then(response => response.blob())
+      .then(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'agendamentos.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      })
+      .catch(error => {
+        console.error('Error exporting:', error);
+        alert('Erro ao exportar');
+      });
+    }
+
+    async function loadBookingStats() {
+      try {
+        const data = await fetchApi('/bookings/stats?days=30');
+
+        const statsDiv = document.getElementById('bookingStats');
+        statsDiv.innerHTML = `
+          <div class="card">
+            <div class="card-title">Total Geral</div>
+            <div class="card-value">${data.totalGeral}</div>
+            <div class="card-subtitle">Ultimos 30 dias</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Recreio</div>
+            <div class="card-value" style="color: var(--info)">${data.recreio.total}</div>
+            <div class="card-subtitle">
+              ${Object.entries(data.recreio.byTime || {}).slice(0, 3).map(([time, count]) => `${time}: ${count}`).join(', ') || 'Sem dados'}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Bangu</div>
+            <div class="card-value" style="color: var(--success)">${data.bangu.total}</div>
+            <div class="card-subtitle">
+              ${Object.entries(data.bangu.byTime || {}).slice(0, 3).map(([time, count]) => `${time}: ${count}`).join(', ') || 'Sem dados'}
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        console.error('Error loading stats:', error);
+      }
+    }
+
+    function formatDateDisplay(dateStr) {
+      const [year, month, day] = dateStr.split('-');
+      return `${day}/${month}/${year}`;
+    }
+
+    // =========================================================================
     // POLLS MANAGEMENT
     // =========================================================================
 
@@ -1484,7 +1720,7 @@
       }
     }
 
-    // Update loadAllData to include polls
+    // Update loadAllData to include polls and stats
     async function loadAllData() {
       try {
         await Promise.all([
@@ -1493,6 +1729,7 @@
           loadWeekBookings(),
           loadUnits(),
           loadPolls(),
+          loadBookingStats(),
           loadQueues(),
           loadReminders()
         ]);
