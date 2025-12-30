@@ -175,6 +175,12 @@ export interface AppConfig {
     confirmationRequired: boolean;
     confirmationDeadlineHours: number;
   };
+  dashboard: {
+    enabled: boolean;
+    port: number;
+    username: string;
+    password: string;
+  };
 }
 
 // ============================================

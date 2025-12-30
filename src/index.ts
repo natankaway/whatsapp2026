@@ -5,9 +5,11 @@ import { queueService, healthService, metricsService } from './infra/index.js';
 import { handleMessage, getMemoryStats } from './events/index.js';
 import { commandLoader } from './commands/index.js';
 import { pollHandler } from './handlers/index.js';
+import dashboardServer from './dashboard/server.js';
 import sessionManager from './utils/sessionManager.js';
 import pauseManager from './utils/pauseManager.js';
 import logger from './utils/logger.js';
+import CONFIG from './config/index.js';
 
 // =============================================================================
 // CONFIGURAÇÕES
@@ -92,6 +94,12 @@ async function bootstrap(): Promise<void> {
     // Iniciar servidor de health check
     healthService.start();
 
+    // Iniciar dashboard administrativo
+    if (CONFIG.dashboard.enabled) {
+      await dashboardServer.start();
+      logger.info(`📊 [INFRA] Dashboard: http://localhost:${CONFIG.dashboard.port}`);
+    }
+
     // Iniciar monitoramento de memória
     startMemoryMonitoring();
 
@@ -99,7 +107,7 @@ async function bootstrap(): Promise<void> {
     logger.info(`📊 [DB] SQLite: ${sqliteService.isReady() ? 'OK' : 'FALLBACK'}`);
     logger.info(`📊 [DB] Redis: ${redisService.isReady() ? 'OK' : 'FALLBACK (memória)'}`);
     logger.info(`📊 [INFRA] Filas: ${queueService.isReady() ? 'OK' : 'FALLBACK (síncrono)'}`);
-    logger.info(`📊 [INFRA] Health: http://localhost:${process.env.HEALTH_PORT ?? 3000}/health`);
+    logger.info(`📊 [INFRA] Health: http://localhost:${process.env.HEALTH_PORT ?? 3001}/health`);
 
     logger.info('✅ Todos os serviços iniciados com sucesso!');
 
@@ -190,6 +198,7 @@ function setupGracefulShutdown(): void {
 
     try {
       // Parar serviços na ordem inversa
+      await dashboardServer.stop();
       healthService.stop();
       await queueService.close();
       backupService.stop();

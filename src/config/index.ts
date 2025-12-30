@@ -183,6 +183,13 @@ Digite o número da opção ou *MENU* para ver novamente.
     confirmationRequired: process.env.REMINDER_CONFIRMATION_REQUIRED === 'true',
     confirmationDeadlineHours: parseInt(process.env.REMINDER_CONFIRMATION_DEADLINE ?? '2', 10),
   },
+
+  dashboard: {
+    enabled: process.env.DASHBOARD_ENABLED !== 'false',
+    port: parseInt(process.env.DASHBOARD_PORT ?? '3000', 10),
+    username: process.env.DASHBOARD_USERNAME ?? 'admin',
+    password: process.env.DASHBOARD_PASSWORD ?? 'admin123',
+  },
 };
 
 export default CONFIG;
