@@ -100,8 +100,12 @@ async function bootstrap(): Promise<void> {
 
     // Iniciar dashboard administrativo
     if (CONFIG.dashboard.enabled) {
-      await dashboardServer.start();
-      logger.info(`📊 [INFRA] Dashboard: http://localhost:${CONFIG.dashboard.port}`);
+      try {
+        await dashboardServer.start();
+        logger.info(`📊 [INFRA] Dashboard: http://localhost:${CONFIG.dashboard.port}`);
+      } catch (err) {
+        logger.warn(`⚠️ [Dashboard] Falha ao iniciar dashboard - continuando sem ele`);
+      }
     }
 
     // Iniciar monitoramento de memória
