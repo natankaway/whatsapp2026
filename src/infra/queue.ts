@@ -84,7 +84,7 @@ class QueueService {
 
   async initialize(): Promise<void> {
     try {
-      // Criar filas
+      // Criar filas com handlers de erro para evitar crash
       this.notificationQueue = new Queue<NotificationJob>('notifications', {
         connection: redisConnection,
         defaultJobOptions: {
@@ -98,6 +98,16 @@ class QueueService {
         },
       });
 
+      // Adicionar handler de erro para evitar crash em versão incompatível
+      this.notificationQueue.on('error', (err) => {
+        if (err.message.includes('Redis version')) {
+          logger.warn('[Queue] Redis incompatível - filas desabilitadas');
+          this.cleanup();
+        } else {
+          logger.error('[Queue] Erro na fila de notificações', err);
+        }
+      });
+
       this.backupQueue = new Queue<BackupJob>('backups', {
         connection: redisConnection,
         defaultJobOptions: {
@@ -106,6 +116,7 @@ class QueueService {
           removeOnFail: 10,
         },
       });
+      this.backupQueue.on('error', () => {}); // Silenciar - já tratado acima
 
       this.cleanupQueue = new Queue<CleanupJob>('cleanup', {
         connection: redisConnection,
@@ -115,6 +126,7 @@ class QueueService {
           removeOnFail: 5,
         },
       });
+      this.cleanupQueue.on('error', () => {}); // Silenciar
 
       this.reminderQueue = new Queue<ReminderJob>('reminders', {
         connection: redisConnection,
@@ -128,6 +140,7 @@ class QueueService {
           removeOnFail: 50,
         },
       });
+      this.reminderQueue.on('error', () => {}); // Silenciar
 
       // Criar workers
       await this.createWorkers();
@@ -136,6 +149,7 @@ class QueueService {
       this.queueEvents = new QueueEvents('notifications', {
         connection: redisConnection,
       });
+      this.queueEvents.on('error', () => {}); // Silenciar
 
       this.setupEventListeners();
 
@@ -143,8 +157,22 @@ class QueueService {
       logger.info('[Queue] Serviço de filas inicializado');
     } catch (error) {
       logger.error('[Queue] Erro ao inicializar filas', error);
+      this.cleanup();
       // Não lançar erro - permitir que o bot funcione sem filas
     }
+  }
+
+  private cleanup(): void {
+    this.isInitialized = false;
+    this.notificationQueue = null;
+    this.backupQueue = null;
+    this.cleanupQueue = null;
+    this.reminderQueue = null;
+    this.notificationWorker = null;
+    this.backupWorker = null;
+    this.cleanupWorker = null;
+    this.reminderWorker = null;
+    this.queueEvents = null;
   }
 
   private async createWorkers(): Promise<void> {
