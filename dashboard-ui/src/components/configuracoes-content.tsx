@@ -172,11 +172,14 @@ export default function ConfiguracoesContent() {
       address: unit.address || "",
       location: unit.location || "",
       workingDays: unit.workingDays || "Segunda a Sexta",
-      schedules: unit.schedules || [],
-      schedulesText: unit.schedulesText || [],
+      schedules: Array.isArray(unit.schedules) ? unit.schedules : [],
+      schedulesText: Array.isArray(unit.schedulesText) ? unit.schedulesText : [],
       saturdayClass: unit.saturdayClass || "",
-      prices: unit.prices || { mensalidade: [], avulsa: "R$ 30,00" },
-      platforms: unit.platforms || [],
+      prices: {
+        mensalidade: Array.isArray(unit.prices?.mensalidade) ? unit.prices.mensalidade : [],
+        avulsa: unit.prices?.avulsa || "R$ 30,00",
+      },
+      platforms: Array.isArray(unit.platforms) ? unit.platforms : [],
       whatsappGroupId: unit.whatsappGroupId || "",
       isActive: unit.isActive !== false,
     });
