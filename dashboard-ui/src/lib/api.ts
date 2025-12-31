@@ -259,7 +259,14 @@ export const getStatus = () => fetchApi<BotStatus>('/status');
 export const getQRCode = () => fetchApi<{ qr: string | null }>('/qr');
 
 // Units
-export const getUnits = () => fetchApi<Unit[]>('/units');
+export const getUnits = async (): Promise<Unit[]> => {
+  const response = await fetchApi<{ units: Unit[] } | Unit[]>('/units');
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'units' in response) {
+    return response.units || [];
+  }
+  return [];
+};
 
 // Bookings
 export const getBookings = (params?: { date?: string; unitId?: number }) => {
@@ -269,12 +276,26 @@ export const getBookings = (params?: { date?: string; unitId?: number }) => {
   return fetchApi<Booking[]>(`/bookings?${query}`);
 };
 
-export const getBookingsToday = () => fetchApi<{
-  date: string;
-  recreio: { total: number; bookings: Booking[] };
-  bangu: { total: number; bookings: Booking[] };
-  totalGeral: number;
-}>('/bookings/today');
+export const getBookingsToday = async (): Promise<Booking[]> => {
+  const response = await fetchApi<{
+    date: string;
+    recreio: { total: number; bookings: Booking[] };
+    bangu: { total: number; bookings: Booking[] };
+    totalGeral: number;
+  }>('/bookings/today');
+
+  // Combine bookings from both units
+  const recreioBookings = (response.recreio?.bookings || []).map(b => ({
+    ...b,
+    unitName: 'Recreio',
+  }));
+  const banguBookings = (response.bangu?.bookings || []).map(b => ({
+    ...b,
+    unitName: 'Bangu',
+  }));
+
+  return [...recreioBookings, ...banguBookings];
+};
 
 export interface WeekDay {
   date: string;
