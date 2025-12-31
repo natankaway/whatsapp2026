@@ -227,21 +227,21 @@ export default function DashboardPage() {
                   </p>
                 </div>
               </div>
-              <Badge variant={status?.bot.isPaused ? "destructive" : "default"}>
-                {status?.bot.isPaused ? "Pausado" : "Ativo"}
+              <Badge variant={status?.bot?.isPaused ? "destructive" : "default"}>
+                {status?.bot?.isPaused ? "Pausado" : "Ativo"}
               </Badge>
             </div>
 
-            {status?.bot.isPaused && (
+            {status?.bot?.isPaused && (
               <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
                 <p className="text-sm text-yellow-400">
-                  <strong>Motivo:</strong> {status.bot.pauseReason || "Não informado"}
+                  <strong>Motivo:</strong> {status?.bot?.pauseReason || "Não informado"}
                 </p>
               </div>
             )}
 
             <div className="flex flex-wrap gap-2">
-              {status?.bot.isPaused ? (
+              {status?.bot?.isPaused ? (
                 <Button onClick={handleResume} className="flex-1">
                   <Play className="h-4 w-4 mr-2" />
                   Retomar
