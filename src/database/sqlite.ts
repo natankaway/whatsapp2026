@@ -196,7 +196,7 @@ export interface UnitRecord {
   whatsappGroupId?: string;
   workingDays: string;
   schedules: string[];
-  schedulesText?: string;
+  schedulesText?: string[];
   saturdayClass?: string;
   prices: {
     mensalidade?: Array<{ frequencia: string; valor: string }>;
@@ -1194,7 +1194,7 @@ class SQLiteService {
         unit.whatsappGroupId ?? null,
         unit.workingDays,
         JSON.stringify(unit.schedules),
-        unit.schedulesText ?? null,
+        unit.schedulesText ? JSON.stringify(unit.schedulesText) : null,
         unit.saturdayClass ?? null,
         JSON.stringify(unit.prices),
         JSON.stringify(unit.platforms),
@@ -1228,7 +1228,7 @@ class SQLiteService {
       if (unit.whatsappGroupId !== undefined) { updates.push('whatsapp_group_id = ?'); values.push(unit.whatsappGroupId); }
       if (unit.workingDays !== undefined) { updates.push('working_days = ?'); values.push(unit.workingDays); }
       if (unit.schedules !== undefined) { updates.push('schedules = ?'); values.push(JSON.stringify(unit.schedules)); }
-      if (unit.schedulesText !== undefined) { updates.push('schedules_text = ?'); values.push(unit.schedulesText); }
+      if (unit.schedulesText !== undefined) { updates.push('schedules_text = ?'); values.push(JSON.stringify(unit.schedulesText)); }
       if (unit.saturdayClass !== undefined) { updates.push('saturday_class = ?'); values.push(unit.saturdayClass); }
       if (unit.prices !== undefined) { updates.push('prices = ?'); values.push(JSON.stringify(unit.prices)); }
       if (unit.platforms !== undefined) { updates.push('platforms = ?'); values.push(JSON.stringify(unit.platforms)); }
@@ -1269,7 +1269,7 @@ class SQLiteService {
       whatsappGroupId: row.whatsappGroupId ?? undefined,
       workingDays: row.workingDays,
       schedules: JSON.parse(row.schedules || '[]'),
-      schedulesText: row.schedulesText ?? undefined,
+      schedulesText: row.schedulesText ? JSON.parse(row.schedulesText) : undefined,
       saturdayClass: row.saturdayClass ?? undefined,
       prices: JSON.parse(row.prices || '{}'),
       platforms: JSON.parse(row.platforms || '[]'),

@@ -52,7 +52,7 @@ async function bootstrap(): Promise<void> {
           location: u.local,
           workingDays: u.diasFuncionamento,
           schedules: u.horarios,
-          schedulesText: u.horariosTexto?.join('\n'),
+          schedulesText: u.horariosTexto,
           saturdayClass: u.aulaoSabado,
           prices: u.precos,
           platforms: u.plataformas,

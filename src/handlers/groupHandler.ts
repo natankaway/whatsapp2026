@@ -34,7 +34,7 @@ function getUnidades(): UnidadeConfig[] {
         local: u.location,
         diasFuncionamento: u.workingDays,
         horarios: u.schedules || [],
-        horariosTexto: u.schedulesText ? u.schedulesText.split('\n') : undefined,
+        horariosTexto: u.schedulesText,
         aulaoSabado: u.saturdayClass,
         precos: {
           mensalidade: u.prices?.mensalidade || [],
