@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { setAuthHeader } from "@/lib/api";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
@@ -26,7 +28,7 @@ export default function LoginPage() {
       const authHeader = "Basic " + btoa(username + ":" + password);
 
       // Test the credentials by fetching status
-      const response = await fetch("/api/status", {
+      const response = await fetch(`${API_BASE}/api/status`, {
         headers: { Authorization: authHeader },
       });
 
