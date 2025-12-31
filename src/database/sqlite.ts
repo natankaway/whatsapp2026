@@ -1260,6 +1260,18 @@ class SQLiteService {
   }
 
   private parseUnitRow(row: UnitRecordRaw): UnitRecord {
+    // Helper para parsear schedulesText que pode estar em formato antigo (string) ou novo (JSON array)
+    const parseSchedulesText = (value: string | null): string[] | undefined => {
+      if (!value) return undefined;
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [value];
+      } catch {
+        // Formato antigo: string com quebras de linha
+        return value.split('\n').filter(Boolean);
+      }
+    };
+
     return {
       id: row.id,
       slug: row.slug,
@@ -1269,7 +1281,7 @@ class SQLiteService {
       whatsappGroupId: row.whatsappGroupId ?? undefined,
       workingDays: row.workingDays,
       schedules: JSON.parse(row.schedules || '[]'),
-      schedulesText: row.schedulesText ? JSON.parse(row.schedulesText) : undefined,
+      schedulesText: parseSchedulesText(row.schedulesText),
       saturdayClass: row.saturdayClass ?? undefined,
       prices: JSON.parse(row.prices || '{}'),
       platforms: JSON.parse(row.platforms || '[]'),
