@@ -239,6 +239,12 @@ export interface Payment {
   createdAt: string;
 }
 
+export interface UnitBillingConfig {
+  message: string;
+  pixKey: string;
+  pixName: string;
+}
+
 export interface BillingConfig {
   enabled: boolean;
   time: string;
@@ -246,6 +252,7 @@ export interface BillingConfig {
   message: string;
   pixKey: string;
   pixName: string;
+  unitConfigs?: Record<string, UnitBillingConfig>;
   nextExecution?: string;
 }
 

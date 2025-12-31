@@ -7,13 +7,20 @@ import whatsappService from '../services/whatsapp.js';
 // BILLING HANDLER - Sistema de cobrança automática
 // =============================================================================
 
+export interface UnitBillingConfig {
+  message: string;
+  pixKey: string;
+  pixName: string;
+}
+
 export interface BillingConfig {
   enabled: boolean;
   time: string; // HH:MM
   daysOfWeek: number[]; // 0-6 (domingo a sábado)
-  message: string;
+  message: string; // Mensagem padrão (fallback)
   pixKey: string;
   pixName: string;
+  unitConfigs?: Record<string, UnitBillingConfig>; // Configurações por unidade (slug -> config)
 }
 
 const DEFAULT_CONFIG: BillingConfig = {
@@ -27,6 +34,7 @@ Ter você conosco é muito importante pra nós.
 E aí, vamos continuar melhorando juntos?!`,
   pixKey: 'ramoslks7@gmail.com',
   pixName: 'Lukas Ramos',
+  unitConfigs: {},
 };
 
 class BillingHandler {
@@ -75,8 +83,19 @@ class BillingHandler {
 
   /**
    * Monta a mensagem de cobrança completa
+   * @param unitSlug - Slug da unidade para usar configuração específica (opcional)
    */
-  private buildMessage(): string {
+  private buildMessage(unitSlug?: string): string {
+    // Verificar se existe configuração específica para a unidade
+    const unitConfig = unitSlug && this.config.unitConfigs?.[unitSlug];
+
+    if (unitConfig && unitConfig.message) {
+      return `${unitConfig.message}
+
+Chave pix: ${unitConfig.pixKey || this.config.pixKey} (${unitConfig.pixName || this.config.pixName})`;
+    }
+
+    // Usar configuração padrão
     return `${this.config.message}
 
 Chave pix: ${this.config.pixKey} (${this.config.pixName})`;
@@ -168,7 +187,6 @@ Chave pix: ${this.config.pixKey} (${this.config.pixName})`;
 
       logger.info(`[BILLING] Encontrados ${students.length} alunos com vencimento hoje`);
 
-      const message = this.buildMessage();
       let sent = 0;
       let failed = 0;
 
@@ -180,6 +198,9 @@ Chave pix: ${this.config.pixKey} (${this.config.pixName})`;
             phone = '55' + phone;
           }
           const jid = phone + '@s.whatsapp.net';
+
+          // Montar mensagem específica para a unidade do aluno
+          const message = this.buildMessage(student.unit);
 
           // Verificar conexão antes de cada envio
           if (!(await this.isSocketReady())) {

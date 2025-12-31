@@ -55,10 +55,13 @@ import {
   getBillingConfig,
   updateBillingConfig,
   executeBillingNow,
+  getUnits,
   Student,
   Payment,
   MonthlyReport,
   BillingConfig,
+  Unit,
+  UnitBillingConfig,
 } from "@/lib/api";
 
 const PLANS = [
@@ -86,6 +89,7 @@ const PAYMENT_METHODS = [
 export default function MensalidadesContent() {
   const [students, setStudents] = useState<Student[]>([]);
   const [billingConfig, setBillingConfig] = useState<BillingConfig | null>(null);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [monthlyReport, setMonthlyReport] = useState<MonthlyReport | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -99,6 +103,7 @@ export default function MensalidadesContent() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [sendingReminder, setSendingReminder] = useState<number | null>(null);
   const [executingBilling, setExecutingBilling] = useState(false);
+  const [selectedBillingUnit, setSelectedBillingUnit] = useState<string>("default");
 
   const [studentForm, setStudentForm] = useState({
     name: "",
@@ -129,12 +134,14 @@ export default function MensalidadesContent() {
 
   const fetchData = async () => {
     try {
-      const [studentsData, configData] = await Promise.all([
+      const [studentsData, configData, unitsData] = await Promise.all([
         getStudentsWithStatus(),
         getBillingConfig(),
+        getUnits(),
       ]);
       setStudents(Array.isArray(studentsData) ? studentsData : []);
       setBillingConfig(configData);
+      setUnits(Array.isArray(unitsData) ? unitsData : []);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -547,7 +554,7 @@ export default function MensalidadesContent() {
                   Pendentes: <strong>{monthlyReport.totalPending}</strong>
                 </span>
                 <span className="text-muted-foreground">
-                  Receita: <strong className="text-green-500">R$ {monthlyReport.totalRevenue.toLocaleString("pt-BR")}</strong>
+                  Receita: <strong className="text-green-500">R$ {(monthlyReport.totalRevenue / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong>
                 </span>
               </div>
             )}
@@ -587,7 +594,7 @@ export default function MensalidadesContent() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="font-bold text-green-500">
-                          R$ {payment.amount.toLocaleString("pt-BR")}
+                          R$ {(payment.amount / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                         </span>
                         <Button
                           size="sm"
@@ -639,24 +646,6 @@ export default function MensalidadesContent() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label>Chave PIX</Label>
-                <Input
-                  placeholder="Sua chave PIX"
-                  value={billingConfig?.pixKey || ""}
-                  onChange={(e) => handleUpdateBillingConfig({ pixKey: e.target.value })}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Nome do Titular PIX</Label>
-                <Input
-                  placeholder="Nome que aparece no PIX"
-                  value={billingConfig?.pixName || ""}
-                  onChange={(e) => handleUpdateBillingConfig({ pixName: e.target.value })}
-                />
-              </div>
-
               <div className="pt-4 border-t border-border">
                 <Button
                   onClick={handleExecuteBillingNow}
@@ -679,6 +668,142 @@ export default function MensalidadesContent() {
                   Envia lembretes para todos os alunos em atraso imediatamente
                 </p>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Mensagens por Unidade */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Mensagens de Cobrança por Unidade</CardTitle>
+              <CardDescription>
+                Configure mensagens e chave PIX diferentes para cada unidade
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label>Selecionar Unidade</Label>
+                <Select value={selectedBillingUnit} onValueChange={setSelectedBillingUnit}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione uma unidade" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Padrão (todas as unidades)</SelectItem>
+                    {units.map((unit) => (
+                      <SelectItem key={unit.slug} value={unit.slug}>
+                        {unit.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedBillingUnit === "default" ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>Mensagem Padrão</Label>
+                    <textarea
+                      className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Mensagem de cobrança padrão"
+                      value={billingConfig?.message || ""}
+                      onChange={(e) => handleUpdateBillingConfig({ message: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Esta mensagem será usada para unidades sem configuração específica
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Chave PIX Padrão</Label>
+                      <Input
+                        placeholder="Sua chave PIX"
+                        value={billingConfig?.pixKey || ""}
+                        onChange={(e) => handleUpdateBillingConfig({ pixKey: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Nome do Titular</Label>
+                      <Input
+                        placeholder="Nome que aparece no PIX"
+                        value={billingConfig?.pixName || ""}
+                        onChange={(e) => handleUpdateBillingConfig({ pixName: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Mensagem para {units.find(u => u.slug === selectedBillingUnit)?.name}</Label>
+                    <textarea
+                      className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Mensagem de cobrança específica para esta unidade (deixe vazio para usar a padrão)"
+                      value={billingConfig?.unitConfigs?.[selectedBillingUnit]?.message || ""}
+                      onChange={(e) => {
+                        const unitConfigs = { ...billingConfig?.unitConfigs };
+                        unitConfigs[selectedBillingUnit] = {
+                          ...unitConfigs[selectedBillingUnit],
+                          message: e.target.value,
+                          pixKey: unitConfigs[selectedBillingUnit]?.pixKey || "",
+                          pixName: unitConfigs[selectedBillingUnit]?.pixName || "",
+                        };
+                        handleUpdateBillingConfig({ unitConfigs });
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Deixe vazio para usar a mensagem padrão
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Chave PIX</Label>
+                      <Input
+                        placeholder="Chave PIX específica (ou vazio para usar padrão)"
+                        value={billingConfig?.unitConfigs?.[selectedBillingUnit]?.pixKey || ""}
+                        onChange={(e) => {
+                          const unitConfigs = { ...billingConfig?.unitConfigs };
+                          unitConfigs[selectedBillingUnit] = {
+                            ...unitConfigs[selectedBillingUnit],
+                            message: unitConfigs[selectedBillingUnit]?.message || "",
+                            pixKey: e.target.value,
+                            pixName: unitConfigs[selectedBillingUnit]?.pixName || "",
+                          };
+                          handleUpdateBillingConfig({ unitConfigs });
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Nome do Titular</Label>
+                      <Input
+                        placeholder="Nome específico (ou vazio para usar padrão)"
+                        value={billingConfig?.unitConfigs?.[selectedBillingUnit]?.pixName || ""}
+                        onChange={(e) => {
+                          const unitConfigs = { ...billingConfig?.unitConfigs };
+                          unitConfigs[selectedBillingUnit] = {
+                            ...unitConfigs[selectedBillingUnit],
+                            message: unitConfigs[selectedBillingUnit]?.message || "",
+                            pixKey: unitConfigs[selectedBillingUnit]?.pixKey || "",
+                            pixName: e.target.value,
+                          };
+                          handleUpdateBillingConfig({ unitConfigs });
+                        }}
+                      />
+                    </div>
+                  </div>
+                  {billingConfig?.unitConfigs?.[selectedBillingUnit]?.message && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const unitConfigs = { ...billingConfig?.unitConfigs };
+                        delete unitConfigs[selectedBillingUnit];
+                        handleUpdateBillingConfig({ unitConfigs });
+                      }}
+                    >
+                      Remover configuração específica
+                    </Button>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
