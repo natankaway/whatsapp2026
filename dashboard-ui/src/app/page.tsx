@@ -53,14 +53,15 @@ export default function DashboardPage() {
 
   const fetchData = async () => {
     try {
-      const [statusData, bookingsData, studentsData] = await Promise.all([
+      const [statusData, bookingsData, studentsData] = await Promise.allSettled([
         getStatus(),
         getBookingsToday(),
         getStudentsWithStatus(),
       ]);
-      setStatus(statusData);
-      setBookingsToday(bookingsData);
-      setStudents(studentsData);
+
+      if (statusData.status === 'fulfilled') setStatus(statusData.value);
+      if (bookingsData.status === 'fulfilled') setBookingsToday(Array.isArray(bookingsData.value) ? bookingsData.value : []);
+      if (studentsData.status === 'fulfilled') setStudents(Array.isArray(studentsData.value) ? studentsData.value : []);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
