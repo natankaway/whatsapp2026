@@ -31,12 +31,14 @@ import {
   Trash2,
   Edit,
   X,
+  Play,
 } from "lucide-react";
 import {
   getPollSchedules,
   createPollSchedule,
   updatePollSchedule,
   deletePollSchedule,
+  executePollSchedule,
   PollSchedule,
 } from "@/lib/api";
 
@@ -73,6 +75,7 @@ export default function EnquetesContent() {
   const [editingSchedule, setEditingSchedule] = useState<PollSchedule | null>(null);
   const [formData, setFormData] = useState<Omit<PollSchedule, "id">>(DEFAULT_POLL);
   const [newOption, setNewOption] = useState("");
+  const [executingId, setExecutingId] = useState<number | null>(null);
 
   const fetchData = async () => {
     try {
@@ -146,6 +149,25 @@ export default function EnquetesContent() {
       fetchData();
     } catch (error) {
       console.error("Error toggling schedule:", error);
+    }
+  };
+
+  const handleExecuteNow = async (id: number) => {
+    if (!confirm("Deseja executar esta enquete agora?")) return;
+    setExecutingId(id);
+    try {
+      const result = await executePollSchedule(id);
+      if (result.success) {
+        alert("Enquete enviada com sucesso!");
+      } else {
+        alert(result.message || "Erro ao enviar enquete");
+      }
+      fetchData();
+    } catch (error) {
+      console.error("Error executing schedule:", error);
+      alert("Erro ao executar enquete");
+    } finally {
+      setExecutingId(null);
     }
   };
 
@@ -269,12 +291,29 @@ export default function EnquetesContent() {
                 <div className="flex gap-2 pt-2 border-t border-border">
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="default"
                     className="flex-1"
+                    onClick={() => handleExecuteNow(schedule.id)}
+                    disabled={executingId === schedule.id}
+                  >
+                    {executingId === schedule.id ? (
+                      <>
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-1" />
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-4 w-4 mr-1" />
+                        Executar
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => openEditDialog(schedule)}
                   >
-                    <Edit className="h-4 w-4 mr-1" />
-                    Editar
+                    <Edit className="h-4 w-4" />
                   </Button>
                   <Button
                     size="sm"

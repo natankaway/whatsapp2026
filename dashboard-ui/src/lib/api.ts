@@ -199,8 +199,40 @@ export const getBookings = (params?: { date?: string; unitId?: number }) => {
   return fetchApi<Booking[]>(`/bookings?${query}`);
 };
 
-export const getBookingsToday = () => fetchApi<Booking[]>('/bookings/today');
-export const getBookingsWeek = () => fetchApi<Booking[]>('/bookings/week');
+export const getBookingsToday = () => fetchApi<{
+  date: string;
+  recreio: { total: number; bookings: Booking[] };
+  bangu: { total: number; bookings: Booking[] };
+  totalGeral: number;
+}>('/bookings/today');
+
+export interface WeekDay {
+  date: string;
+  dayName: string;
+  recreio: number;
+  bangu: number;
+  total: number;
+}
+
+export const getBookingsWeek = () => fetchApi<{
+  startDate: string;
+  endDate: string;
+  days: WeekDay[];
+  totalSemana: number;
+}>('/bookings/week');
+
+export const searchBookings = (query: string, unit?: string) => {
+  const params = new URLSearchParams({ query });
+  if (unit) params.set('unit', unit);
+  return fetchApi<{ query: string; total: number; bookings: Booking[] }>(`/bookings/search?${params}`);
+};
+
+export const exportBookingsCSV = (startDate: string, endDate: string, unit?: string) => {
+  const params = new URLSearchParams({ startDate, endDate });
+  if (unit) params.set('unit', unit);
+  const authHeader = typeof window !== 'undefined' ? localStorage.getItem('authHeader') || '' : '';
+  return `${API_BASE}/api/bookings/export?${params}&auth=${encodeURIComponent(authHeader)}`;
+};
 
 export const createBooking = (data: Omit<Booking, 'id' | 'createdAt'>) =>
   fetchApi<Booking>('/bookings', { method: 'POST', body: JSON.stringify(data) });
@@ -222,6 +254,9 @@ export const updatePollSchedule = (id: number, data: Partial<PollSchedule>) =>
 
 export const deletePollSchedule = (id: number) =>
   fetchApi<void>(`/poll-schedules/${id}`, { method: 'DELETE' });
+
+export const executePollSchedule = (id: number) =>
+  fetchApi<{ success: boolean; message: string }>(`/poll-schedules/${id}/execute`, { method: 'POST' });
 
 // Students
 export const getStudents = (params?: { unit?: string; status?: string }) => {

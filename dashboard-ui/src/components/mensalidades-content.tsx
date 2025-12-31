@@ -37,6 +37,9 @@ import {
   Send,
   Calendar,
   CheckCircle,
+  History,
+  FileText,
+  Play,
 } from "lucide-react";
 import {
   getStudentsWithStatus,
@@ -44,11 +47,17 @@ import {
   updateStudent,
   deleteStudent,
   createPayment,
+  deletePayment,
+  getPayments,
+  getMonthlyReport,
   sendBillingReminder,
   sendBulkReminders,
   getBillingConfig,
   updateBillingConfig,
+  executeBillingNow,
   Student,
+  Payment,
+  MonthlyReport,
   BillingConfig,
 } from "@/lib/api";
 
@@ -70,7 +79,11 @@ const PAYMENT_METHODS = [
 export default function MensalidadesContent() {
   const [students, setStudents] = useState<Student[]>([]);
   const [billingConfig, setBillingConfig] = useState<BillingConfig | null>(null);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [monthlyReport, setMonthlyReport] = useState<MonthlyReport | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
+  const [loadingPayments, setLoadingPayments] = useState(false);
   const [filterUnit, setFilterUnit] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [showStudentDialog, setShowStudentDialog] = useState(false);
@@ -78,6 +91,7 @@ export default function MensalidadesContent() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [sendingReminder, setSendingReminder] = useState<number | null>(null);
+  const [executingBilling, setExecutingBilling] = useState(false);
 
   const [studentForm, setStudentForm] = useState({
     name: "",
@@ -246,6 +260,57 @@ export default function MensalidadesContent() {
     }
   };
 
+  const fetchPaymentsAndReport = async (month: string) => {
+    setLoadingPayments(true);
+    try {
+      const [paymentsData, reportData] = await Promise.allSettled([
+        getPayments({ month }),
+        getMonthlyReport(month),
+      ]);
+      if (paymentsData.status === "fulfilled") {
+        setPayments(Array.isArray(paymentsData.value) ? paymentsData.value : []);
+      }
+      if (reportData.status === "fulfilled") {
+        setMonthlyReport(reportData.value);
+      }
+    } catch (error) {
+      console.error("Error fetching payments:", error);
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  const handleMonthChange = (month: string) => {
+    setSelectedMonth(month);
+    fetchPaymentsAndReport(month);
+  };
+
+  const handleDeletePayment = async (id: number) => {
+    if (!confirm("Tem certeza que deseja excluir este pagamento?")) return;
+    try {
+      await deletePayment(id);
+      fetchPaymentsAndReport(selectedMonth);
+      fetchData();
+    } catch (error) {
+      console.error("Error deleting payment:", error);
+    }
+  };
+
+  const handleExecuteBillingNow = async () => {
+    if (!confirm("Deseja executar as cobranças automáticas agora?")) return;
+    setExecutingBilling(true);
+    try {
+      await executeBillingNow();
+      alert("Cobranças executadas com sucesso!");
+      fetchData();
+    } catch (error) {
+      console.error("Error executing billing:", error);
+      alert("Erro ao executar cobranças");
+    } finally {
+      setExecutingBilling(false);
+    }
+  };
+
   return (
     <DashboardLayout title="Mensalidades">
       {/* Stats Cards */}
@@ -293,7 +358,11 @@ export default function MensalidadesContent() {
       <Tabs defaultValue="students" className="space-y-4">
         <TabsList>
           <TabsTrigger value="students">Alunos</TabsTrigger>
-          <TabsTrigger value="billing">Cobranças Automáticas</TabsTrigger>
+          <TabsTrigger value="history" onClick={() => fetchPaymentsAndReport(selectedMonth)}>
+            <History className="h-4 w-4 mr-1" />
+            Histórico
+          </TabsTrigger>
+          <TabsTrigger value="billing">Cobranças</TabsTrigger>
         </TabsList>
 
         {/* Students Tab */}
@@ -439,6 +508,90 @@ export default function MensalidadesContent() {
           )}
         </TabsContent>
 
+        {/* History Tab */}
+        <TabsContent value="history" className="space-y-4">
+          {/* Month Selector and Report Summary */}
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+            <div className="flex items-center gap-2">
+              <Label>Mês:</Label>
+              <Input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => handleMonthChange(e.target.value)}
+                className="w-[180px]"
+              />
+            </div>
+            {monthlyReport && (
+              <div className="flex flex-wrap gap-4 text-sm">
+                <span className="text-muted-foreground">
+                  Total: <strong className="text-foreground">{monthlyReport.totalStudents} alunos</strong>
+                </span>
+                <span className="text-green-500">
+                  Pagos: <strong>{monthlyReport.totalPaid}</strong>
+                </span>
+                <span className="text-red-500">
+                  Pendentes: <strong>{monthlyReport.totalPending}</strong>
+                </span>
+                <span className="text-muted-foreground">
+                  Receita: <strong className="text-green-500">R$ {monthlyReport.totalRevenue.toLocaleString("pt-BR")}</strong>
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Payments List */}
+          {loadingPayments ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            </div>
+          ) : payments.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">
+                  Nenhum pagamento registrado neste mês
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <History className="h-5 w-5" />
+                  Pagamentos de {new Date(selectedMonth + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {payments.map((payment) => (
+                    <div key={payment.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div className="flex-1">
+                        <p className="font-medium">{payment.studentName || `Aluno #${payment.studentId}`}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(payment.paymentDate).toLocaleDateString("pt-BR")} • {payment.paymentMethod.toUpperCase()}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-green-500">
+                          R$ {payment.amount.toLocaleString("pt-BR")}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                          onClick={() => handleDeletePayment(payment.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
         {/* Billing Config Tab */}
         <TabsContent value="billing" className="space-y-4">
           <Card>
@@ -488,6 +641,29 @@ export default function MensalidadesContent() {
                   value={billingConfig?.pixName || ""}
                   onChange={(e) => handleUpdateBillingConfig({ pixName: e.target.value })}
                 />
+              </div>
+
+              <div className="pt-4 border-t border-border">
+                <Button
+                  onClick={handleExecuteBillingNow}
+                  disabled={executingBilling}
+                  className="w-full"
+                >
+                  {executingBilling ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                      Executando...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4 mr-2" />
+                      Executar Cobranças Agora
+                    </>
+                  )}
+                </Button>
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  Envia lembretes para todos os alunos em atraso imediatamente
+                </p>
               </div>
             </CardContent>
           </Card>
