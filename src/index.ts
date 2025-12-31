@@ -4,7 +4,7 @@ import { sqliteService, redisService } from './database/index.js';
 import { queueService, healthService, metricsService } from './infra/index.js';
 import { handleMessage, getMemoryStats } from './events/index.js';
 import { commandLoader } from './commands/index.js';
-import { pollHandler } from './handlers/index.js';
+import { pollHandler, billingHandler } from './handlers/index.js';
 import dashboardServer from './dashboard/server.js';
 import sessionManager from './utils/sessionManager.js';
 import pauseManager from './utils/pauseManager.js';
@@ -180,6 +180,7 @@ async function waitForConnection(): Promise<void> {
         const sock = whatsappService.getSocket();
         if (sock) {
           pollHandler.schedulePolls(sock);
+          billingHandler.scheduleDailyBilling();
           logger.info(`✅ Conexão estabelecida em ${Math.round(elapsed / 1000)}s`);
         }
         resolve();

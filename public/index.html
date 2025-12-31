@@ -1538,6 +1538,7 @@
           <button class="poll-subtab" onclick="showBillingSubtab('payments')">Pagamentos</button>
           <button class="poll-subtab" onclick="showBillingSubtab('overdue')">Inadimplentes</button>
           <button class="poll-subtab" onclick="showBillingSubtab('report')">Relatorio</button>
+          <button class="poll-subtab" onclick="showBillingSubtab('config')">Cobranca Automatica</button>
         </div>
 
         <!-- Stats Cards -->
@@ -1603,6 +1604,83 @@
             <button onclick="loadMonthlyReport()" style="padding: 8px 16px; background: var(--primary); border: none; color: #fff; border-radius: 6px; cursor: pointer;">Gerar Relatorio</button>
           </div>
           <div id="reportResult"></div>
+        </div>
+
+        <!-- Billing Config -->
+        <div id="configContent" style="display: none;">
+          <div class="card" style="padding: 24px;">
+            <h3 style="margin-bottom: 20px;">Configuracao de Cobranca Automatica</h3>
+            <p style="color: var(--text-muted); margin-bottom: 20px;">Configure o envio automatico de lembretes de cobranca para alunos com mensalidade vencendo no dia.</p>
+
+            <form id="billingConfigForm">
+              <div class="form-group" style="margin-bottom: 20px;">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                  <input type="checkbox" id="billingEnabled" style="width: 20px; height: 20px;">
+                  <span>Cobranca Automatica Habilitada</span>
+                </label>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="form-group">
+                  <label>Horario de Envio</label>
+                  <input type="time" id="billingTime" value="09:00" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+                <div class="form-group">
+                  <label>Proxima Execucao</label>
+                  <div id="billingNextExecution" style="padding: 12px 16px; background: var(--bg-dark); border-radius: 8px; color: var(--text-muted);">-</div>
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-top: 20px;">
+                <label>Dias da Semana</label>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px;">
+                  <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" name="billingDays" value="0"> Dom
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" name="billingDays" value="1" checked> Seg
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" name="billingDays" value="2" checked> Ter
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" name="billingDays" value="3" checked> Qua
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" name="billingDays" value="4" checked> Qui
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" name="billingDays" value="5" checked> Sex
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" name="billingDays" value="6"> Sab
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-top: 20px;">
+                <label>Mensagem de Cobranca</label>
+                <textarea id="billingMessage" rows="5" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text); resize: vertical; font-family: inherit;"></textarea>
+                <small style="color: var(--text-muted);">A chave PIX sera adicionada automaticamente ao final da mensagem.</small>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+                <div class="form-group">
+                  <label>Chave PIX</label>
+                  <input type="text" id="billingPixKey" placeholder="email@exemplo.com" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+                <div class="form-group">
+                  <label>Nome do Titular</label>
+                  <input type="text" id="billingPixName" placeholder="Nome Completo" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 10px; margin-top: 24px;">
+                <button type="submit" class="btn" style="flex: 1;">Salvar Configuracao</button>
+                <button type="button" onclick="executeBillingNow()" style="padding: 14px 24px; background: var(--warning); border: none; color: #000; border-radius: 8px; cursor: pointer; font-weight: bold;">Executar Agora</button>
+              </div>
+            </form>
+          </div>
         </div>
 
         <!-- Create/Edit Student Modal -->
@@ -3090,6 +3168,8 @@
       document.getElementById('paymentsContent').style.display = tab === 'payments' ? 'block' : 'none';
       document.getElementById('overdueContent').style.display = tab === 'overdue' ? 'block' : 'none';
       document.getElementById('reportContent').style.display = tab === 'report' ? 'block' : 'none';
+      document.getElementById('configContent').style.display = tab === 'config' ? 'block' : 'none';
+      document.getElementById('billingStats').style.display = tab === 'config' ? 'none' : 'grid';
 
       if (tab === 'students') loadStudents();
       if (tab === 'payments') loadPayments();
@@ -3098,6 +3178,7 @@
         const now = new Date();
         document.getElementById('reportMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       }
+      if (tab === 'config') loadBillingConfig();
     }
 
     function showCreateStudentModal() {
@@ -3450,6 +3531,111 @@
       const [year, month, day] = dateStr.split('-');
       return `${day}/${month}/${year}`;
     }
+
+    // ============= Billing Config Functions =============
+
+    async function loadBillingConfig() {
+      try {
+        const config = await fetchApi('/billing/config');
+
+        document.getElementById('billingEnabled').checked = config.enabled;
+        document.getElementById('billingTime').value = config.time || '09:00';
+        document.getElementById('billingMessage').value = config.message || '';
+        document.getElementById('billingPixKey').value = config.pixKey || '';
+        document.getElementById('billingPixName').value = config.pixName || '';
+
+        // Set days of week checkboxes
+        const daysCheckboxes = document.querySelectorAll('input[name="billingDays"]');
+        daysCheckboxes.forEach(cb => {
+          cb.checked = (config.daysOfWeek || []).includes(parseInt(cb.value));
+        });
+
+        // Update next execution display
+        if (config.nextExecution) {
+          const nextDate = new Date(config.nextExecution);
+          document.getElementById('billingNextExecution').textContent =
+            nextDate.toLocaleString('pt-BR', {
+              weekday: 'long',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+        } else {
+          document.getElementById('billingNextExecution').textContent = 'Nao agendado';
+        }
+      } catch (error) {
+        console.error('Error loading billing config:', error);
+        alert('Erro ao carregar configuracao de cobranca');
+      }
+    }
+
+    async function saveBillingConfig(event) {
+      event.preventDefault();
+
+      const daysOfWeek = [];
+      document.querySelectorAll('input[name="billingDays"]:checked').forEach(cb => {
+        daysOfWeek.push(parseInt(cb.value));
+      });
+
+      const config = {
+        enabled: document.getElementById('billingEnabled').checked,
+        time: document.getElementById('billingTime').value,
+        daysOfWeek: daysOfWeek,
+        message: document.getElementById('billingMessage').value,
+        pixKey: document.getElementById('billingPixKey').value,
+        pixName: document.getElementById('billingPixName').value
+      };
+
+      try {
+        const response = await fetch('/api/billing/config', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': authHeader
+          },
+          body: JSON.stringify(config)
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          alert('Configuracao salva com sucesso!');
+          loadBillingConfig(); // Reload to update next execution
+        } else {
+          alert('Erro: ' + (result.error || 'Falha ao salvar'));
+        }
+      } catch (error) {
+        console.error('Error saving billing config:', error);
+        alert('Erro ao salvar configuracao');
+      }
+    }
+
+    async function executeBillingNow() {
+      if (!confirm('Enviar cobranca AGORA para todos os alunos que vencem hoje?')) return;
+
+      try {
+        const response = await fetch('/api/billing/execute-now', {
+          method: 'POST',
+          headers: { 'Authorization': authHeader }
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          alert('Cobranca iniciada em segundo plano. Verifique os logs para acompanhar.');
+        } else {
+          alert('Erro: ' + (result.error || 'Falha ao iniciar cobranca'));
+        }
+      } catch (error) {
+        console.error('Error executing billing:', error);
+        alert('Erro ao executar cobranca');
+      }
+    }
+
+    // Setup billing config form
+    document.getElementById('billingConfigForm').addEventListener('submit', saveBillingConfig);
 
     // Update loadAllData to include billing
     async function loadAllData() {

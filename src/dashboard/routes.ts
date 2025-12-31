@@ -7,6 +7,7 @@ import reminderService from '../services/reminder.js';
 import { getMemoryStats } from '../events/messageHandler.js';
 import logger from '../utils/logger.js';
 import { pollHandler } from '../handlers/pollHandler.js';
+import { billingHandler } from '../handlers/billingHandler.js';
 import CONFIG from '../config/index.js';
 
 // =============================================================================
@@ -1700,6 +1701,71 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
     } catch (error) {
       logger.error('[Dashboard] Erro ao enviar lembretes em lote', error);
       res.status(500).json({ error: 'Erro ao enviar lembretes' });
+    }
+  });
+
+  // ===========================================================================
+  // BILLING CONFIG
+  // ===========================================================================
+
+  // Obter configuração de cobrança automática
+  router.get('/billing/config', (_req: Request, res: Response) => {
+    try {
+      const config = billingHandler.getConfig();
+      const jobInfo = billingHandler.getScheduledJob();
+      res.json({
+        ...config,
+        nextExecution: jobInfo.nextExecution,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao obter config de cobrança', error);
+      res.status(500).json({ error: 'Erro ao obter configuração' });
+    }
+  });
+
+  // Atualizar configuração de cobrança automática
+  router.put('/billing/config', (req: Request, res: Response) => {
+    try {
+      const { enabled, time, daysOfWeek, message, pixKey, pixName } = req.body;
+
+      const config: Record<string, unknown> = {};
+      if (enabled !== undefined) config.enabled = Boolean(enabled);
+      if (time) config.time = String(time);
+      if (daysOfWeek) config.daysOfWeek = Array.isArray(daysOfWeek) ? daysOfWeek.map(Number) : [];
+      if (message) config.message = String(message);
+      if (pixKey) config.pixKey = String(pixKey);
+      if (pixName) config.pixName = String(pixName);
+
+      billingHandler.saveConfig(config);
+      billingHandler.rescheduleBilling();
+
+      const updatedConfig = billingHandler.getConfig();
+      const jobInfo = billingHandler.getScheduledJob();
+
+      res.json({
+        success: true,
+        config: {
+          ...updatedConfig,
+          nextExecution: jobInfo.nextExecution,
+        },
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar config de cobrança', error);
+      res.status(500).json({ error: 'Erro ao atualizar configuração' });
+    }
+  });
+
+  // Executar cobrança manual (enviar para todos com vencimento hoje)
+  router.post('/billing/execute-now', async (_req: Request, res: Response) => {
+    try {
+      res.json({ success: true, message: 'Cobrança iniciada em segundo plano' });
+      // Executar em segundo plano
+      billingHandler.sendDailyReminders().catch(error => {
+        logger.error('[Dashboard] Erro ao executar cobrança manual', error);
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao iniciar cobrança manual', error);
+      res.status(500).json({ error: 'Erro ao iniciar cobrança' });
     }
   });
 
