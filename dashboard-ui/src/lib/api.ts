@@ -442,11 +442,18 @@ export const deleteStudent = (id: number) =>
   fetchApi<void>(`/students/${id}`, { method: 'DELETE' });
 
 // Payments
-export const getPayments = (params?: { month?: string; studentId?: number }) => {
+export const getPayments = async (params?: { month?: string; studentId?: number }): Promise<Payment[]> => {
   const query = new URLSearchParams();
-  if (params?.month) query.set('month', params.month);
+  // Backend expects 'referenceMonth' not 'month'
+  if (params?.month) query.set('referenceMonth', params.month);
   if (params?.studentId) query.set('studentId', String(params.studentId));
-  return fetchApi<Payment[]>(`/payments?${query}`);
+  const response = await fetchApi<{ payments: Payment[] } | Payment[]>(`/payments?${query}`);
+  // Handle both array and object responses
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'payments' in response) {
+    return response.payments || [];
+  }
+  return [];
 };
 
 export const getMonthlyReport = (month: string) =>

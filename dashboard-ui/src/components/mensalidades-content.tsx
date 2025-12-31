@@ -62,11 +62,18 @@ import {
 } from "@/lib/api";
 
 const PLANS = [
-  { value: "mensal", label: "Mensal" },
-  { value: "trimestral", label: "Trimestral" },
-  { value: "semestral", label: "Semestral" },
-  { value: "anual", label: "Anual" },
+  { value: "1x", label: "1x por semana" },
+  { value: "2x", label: "2x por semana" },
+  { value: "3x", label: "3x por semana" },
+  { value: "5x", label: "5x por semana" },
+  { value: "plataforma", label: "Plataforma" },
 ];
+
+// Valores em centavos por unidade e plano
+const PLAN_VALUES: Record<string, Record<string, number>> = {
+  recreio: { "1x": 10000, "2x": 18000, "3x": 25000, "5x": 35000, plataforma: 5000 },
+  bangu: { "1x": 8000, "2x": 15000, "3x": 22000, "5x": 30000, plataforma: 5000 },
+};
 
 const PAYMENT_METHODS = [
   { value: "pix", label: "PIX" },
@@ -97,14 +104,20 @@ export default function MensalidadesContent() {
     name: "",
     phone: "",
     email: "",
-    unit: "recreio" as const,
-    plan: "mensal",
-    planValue: 200,
+    unit: "recreio" as "recreio" | "bangu",
+    plan: "1x",
+    planValue: PLAN_VALUES.recreio["1x"],
     dueDay: 10,
     startDate: new Date().toISOString().split("T")[0],
     status: "active" as const,
     notes: "",
   });
+
+  // Atualiza o valor do plano automaticamente quando muda unidade ou plano
+  const updatePlanValue = (unit: string, plan: string) => {
+    const value = PLAN_VALUES[unit]?.[plan] || 10000;
+    setStudentForm((prev) => ({ ...prev, planValue: value }));
+  };
 
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
@@ -150,12 +163,12 @@ export default function MensalidadesContent() {
       name: "",
       phone: "",
       email: "",
-      unit: "recreio",
-      plan: "mensal",
-      planValue: 200,
+      unit: "recreio" as "recreio" | "bangu",
+      plan: "1x",
+      planValue: PLAN_VALUES.recreio["1x"],
       dueDay: 10,
       startDate: new Date().toISOString().split("T")[0],
-      status: "active",
+      status: "active" as const,
       notes: "",
     });
     setShowStudentDialog(true);
@@ -181,7 +194,8 @@ export default function MensalidadesContent() {
   const openPaymentDialog = (student: Student) => {
     setSelectedStudent(student);
     setPaymentForm({
-      amount: student.planValue,
+      // planValue está em centavos, converter para reais
+      amount: student.planValue / 100,
       referenceMonth: new Date().toISOString().slice(0, 7),
       paymentDate: new Date().toISOString().split("T")[0],
       paymentMethod: "pix",
@@ -349,7 +363,7 @@ export default function MensalidadesContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              R$ {students.filter((s) => s.status === "active").reduce((sum, s) => sum + s.planValue, 0).toLocaleString("pt-BR")}
+              R$ {(students.filter((s) => s.status === "active").reduce((sum, s) => sum + s.planValue, 0) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
             </div>
           </CardContent>
         </Card>
@@ -454,7 +468,7 @@ export default function MensalidadesContent() {
                     )}
                     <div className="flex items-center gap-2 text-sm">
                       <CreditCard className="h-4 w-4 text-muted-foreground" />
-                      <span>{student.plan} - R$ {student.planValue}</span>
+                      <span>{student.plan} - R$ {(student.planValue / 100).toFixed(2)}</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="h-4 w-4" />
@@ -714,7 +728,10 @@ export default function MensalidadesContent() {
                 <Label>Unidade</Label>
                 <Select
                   value={studentForm.unit}
-                  onValueChange={(value: "recreio" | "bangu") => setStudentForm((prev) => ({ ...prev, unit: value }))}
+                  onValueChange={(value: "recreio" | "bangu") => {
+                    setStudentForm((prev) => ({ ...prev, unit: value }));
+                    updatePlanValue(value, studentForm.plan);
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -729,7 +746,10 @@ export default function MensalidadesContent() {
                 <Label>Plano</Label>
                 <Select
                   value={studentForm.plan}
-                  onValueChange={(value) => setStudentForm((prev) => ({ ...prev, plan: value }))}
+                  onValueChange={(value) => {
+                    setStudentForm((prev) => ({ ...prev, plan: value }));
+                    updatePlanValue(studentForm.unit, value);
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -749,8 +769,9 @@ export default function MensalidadesContent() {
                 <Label>Valor (R$)</Label>
                 <Input
                   type="number"
-                  value={studentForm.planValue}
-                  onChange={(e) => setStudentForm((prev) => ({ ...prev, planValue: Number(e.target.value) }))}
+                  step="0.01"
+                  value={(studentForm.planValue / 100).toFixed(2)}
+                  onChange={(e) => setStudentForm((prev) => ({ ...prev, planValue: Math.round(Number(e.target.value) * 100) }))}
                 />
               </div>
               <div className="space-y-2">

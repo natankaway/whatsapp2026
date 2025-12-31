@@ -37,6 +37,9 @@ export function createDashboardRoutes(): Router {
       const reminderStats = sqliteService.getReminderStats();
       const memoryStats = getMemoryStats();
 
+      // Get bot settings for pause status
+      const botSettings = sqliteService.getBotSettings();
+
       res.json({
         whatsapp: {
           state: whatsappState,
@@ -45,13 +48,20 @@ export function createDashboardRoutes(): Router {
           uptime: whatsappUptime,
           uptimeFormatted: formatUptime(whatsappUptime),
         },
+        bot: {
+          isPaused: botSettings?.botPaused || false,
+          pauseReason: botSettings?.pauseReason || null,
+          pausedAt: botSettings?.pausedAt || null,
+          pausedBy: botSettings?.pausedBy || null,
+        },
         queue: queueStats,
         reminders: reminderStats,
         memory: memoryStats,
         system: {
           uptime: process.uptime(),
           uptimeFormatted: formatUptime(process.uptime() * 1000),
-          memoryUsage: process.memoryUsage(),
+          memory: memoryStats,
+          platform: process.platform,
           nodeVersion: process.version,
         },
       });
