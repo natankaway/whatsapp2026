@@ -78,13 +78,32 @@ export interface BotStatus {
   };
 }
 
+export interface UnitPrice {
+  frequencia: string;
+  valor: string;
+}
+
+export interface UnitPrices {
+  mensalidade: UnitPrice[];
+  avulsa: string;
+}
+
 export interface Unit {
   id: number;
   slug: string;
   name: string;
   address: string;
-  phone: string;
-  maxBookingsPerSlot: number;
+  location: string;
+  workingDays: string;
+  schedules: string[];
+  schedulesText?: string[];
+  saturdayClass?: string;
+  prices: UnitPrices;
+  platforms: string[];
+  whatsappGroupId?: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Booking {
@@ -267,6 +286,17 @@ export const getUnits = async (): Promise<Unit[]> => {
   }
   return [];
 };
+
+export const getUnitById = (id: number) => fetchApi<Unit>(`/units/${id}`);
+
+export const createUnit = (data: Omit<Unit, 'id' | 'createdAt' | 'updatedAt'>) =>
+  fetchApi<Unit>('/units', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateUnit = (id: number, data: Partial<Unit>) =>
+  fetchApi<Unit>(`/units/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+export const deleteUnit = (id: number) =>
+  fetchApi<{ success: boolean }>(`/units/${id}`, { method: 'DELETE' });
 
 // Bookings
 export const getBookings = (params?: { date?: string; unitId?: number }) => {

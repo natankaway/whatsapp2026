@@ -109,7 +109,7 @@ export default function MensalidadesContent() {
     planValue: PLAN_VALUES.recreio["1x"],
     dueDay: 10,
     startDate: new Date().toISOString().split("T")[0],
-    status: "active" as const,
+    status: "active" as "active" | "inactive" | "suspended",
     notes: "",
   });
 
