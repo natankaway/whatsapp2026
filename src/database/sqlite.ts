@@ -753,6 +753,61 @@ class SQLiteService {
   }
 
   /**
+   * Atualiza um agendamento
+   */
+  updateBooking(id: number, updates: Partial<BookingRecord>): BookingRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const fields: string[] = [];
+      const values: unknown[] = [];
+
+      if (updates.status !== undefined) {
+        fields.push('status = ?');
+        values.push(updates.status);
+      }
+      if (updates.name !== undefined) {
+        fields.push('name = ?');
+        values.push(updates.name);
+      }
+      if (updates.phone !== undefined) {
+        fields.push('phone = ?');
+        values.push(updates.phone);
+      }
+      if (updates.date !== undefined) {
+        fields.push('date = ?');
+        values.push(updates.date);
+      }
+      if (updates.time !== undefined) {
+        fields.push('time = ?');
+        values.push(updates.time);
+      }
+
+      if (fields.length === 0) {
+        return null;
+      }
+
+      fields.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id);
+
+      const stmt = this.db.prepare(`
+        UPDATE bookings SET ${fields.join(', ')} WHERE id = ?
+      `);
+      stmt.run(...values);
+
+      // Return updated booking
+      const selectStmt = this.db.prepare(`
+        SELECT id, unit, date, time, name, phone, status, source, created_at as createdAt, updated_at as updatedAt
+        FROM bookings WHERE id = ?
+      `);
+      return selectStmt.get(id) as BookingRecord | null;
+    } catch (error) {
+      logger.error('[SQLite] Erro ao atualizar agendamento', error);
+      return null;
+    }
+  }
+
+  /**
    * Remove agendamentos antigos (limpeza)
    */
   cleanOldBookings(daysToKeep: number = 30): number {

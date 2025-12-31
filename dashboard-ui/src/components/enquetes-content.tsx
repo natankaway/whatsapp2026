@@ -54,7 +54,7 @@ const DAYS_OF_WEEK = [
 
 const DEFAULT_POLL: Omit<PollSchedule, "id"> = {
   name: "",
-  targetGroup: "alunos",
+  targetGroup: "recreio",
   time: "08:00",
   dayOfWeek: "",
   monday: false,
@@ -256,8 +256,8 @@ export default function EnquetesContent() {
                     </CardTitle>
                     <CardDescription className="flex items-center gap-1 mt-1">
                       <Users className="h-3 w-3" />
-                      {schedule.targetGroup === "alunos" ? "Grupo de Alunos" :
-                       schedule.targetGroup === "geral" ? "Grupo Geral" :
+                      {schedule.targetGroup === "recreio" ? "Recreio" :
+                       schedule.targetGroup === "bangu" ? "Bangu" :
                        "Grupo Customizado"}
                     </CardDescription>
                   </div>
@@ -362,8 +362,8 @@ export default function EnquetesContent() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="alunos">Grupo de Alunos</SelectItem>
-                  <SelectItem value="geral">Grupo Geral</SelectItem>
+                  <SelectItem value="recreio">Recreio</SelectItem>
+                  <SelectItem value="bangu">Bangu</SelectItem>
                   <SelectItem value="custom">Grupo Customizado</SelectItem>
                 </SelectContent>
               </Select>

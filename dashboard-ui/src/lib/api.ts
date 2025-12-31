@@ -100,6 +100,25 @@ export interface Booking {
   createdAt: string;
 }
 
+// Backend PollSchedule format
+export interface PollScheduleBackend {
+  id: number;
+  name: string;
+  description?: string;
+  targetGroup: string;
+  customGroupId?: string;
+  dayOfWeek: string;
+  pollOptions: string[];
+  scheduleHour: number;
+  scheduleMinute: number;
+  scheduleDays: number[];
+  isActive: boolean;
+  lastExecutedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Frontend PollSchedule format (more user-friendly)
 export interface PollSchedule {
   id: number;
   name: string;
@@ -118,6 +137,57 @@ export interface PollSchedule {
   enabled: boolean;
   lastExecuted?: string;
 }
+
+// Convert backend format to frontend format
+const convertToFrontendFormat = (backend: PollScheduleBackend): PollSchedule => {
+  const hour = String(backend.scheduleHour).padStart(2, '0');
+  const minute = String(backend.scheduleMinute).padStart(2, '0');
+  const days = backend.scheduleDays || [];
+
+  return {
+    id: backend.id,
+    name: backend.name,
+    targetGroup: backend.targetGroup,
+    customGroupId: backend.customGroupId,
+    time: `${hour}:${minute}`,
+    dayOfWeek: backend.dayOfWeek,
+    sunday: days.includes(0),
+    monday: days.includes(1),
+    tuesday: days.includes(2),
+    wednesday: days.includes(3),
+    thursday: days.includes(4),
+    friday: days.includes(5),
+    saturday: days.includes(6),
+    pollOptions: backend.pollOptions || [],
+    enabled: backend.isActive,
+    lastExecuted: backend.lastExecutedAt,
+  };
+};
+
+// Convert frontend format to backend format
+const convertToBackendFormat = (frontend: Omit<PollSchedule, 'id'>): Omit<PollScheduleBackend, 'id' | 'createdAt' | 'updatedAt' | 'lastExecutedAt'> => {
+  const [hour, minute] = frontend.time.split(':').map(Number);
+  const scheduleDays: number[] = [];
+  if (frontend.sunday) scheduleDays.push(0);
+  if (frontend.monday) scheduleDays.push(1);
+  if (frontend.tuesday) scheduleDays.push(2);
+  if (frontend.wednesday) scheduleDays.push(3);
+  if (frontend.thursday) scheduleDays.push(4);
+  if (frontend.friday) scheduleDays.push(5);
+  if (frontend.saturday) scheduleDays.push(6);
+
+  return {
+    name: frontend.name,
+    targetGroup: frontend.targetGroup,
+    customGroupId: frontend.customGroupId,
+    dayOfWeek: frontend.dayOfWeek,
+    pollOptions: frontend.pollOptions,
+    scheduleHour: hour || 8,
+    scheduleMinute: minute || 0,
+    scheduleDays,
+    isActive: frontend.enabled,
+  };
+};
 
 export interface Student {
   id: number;
@@ -244,13 +314,64 @@ export const deleteBooking = (id: number) =>
   fetchApi<void>(`/bookings/${id}`, { method: 'DELETE' });
 
 // Poll Schedules
-export const getPollSchedules = () => fetchApi<PollSchedule[]>('/poll-schedules');
+export const getPollSchedules = async (): Promise<PollSchedule[]> => {
+  const response = await fetchApi<{ schedules: PollScheduleBackend[] } | PollScheduleBackend[]>('/poll-schedules');
+  let schedules: PollScheduleBackend[] = [];
 
-export const createPollSchedule = (data: Omit<PollSchedule, 'id'>) =>
-  fetchApi<PollSchedule>('/poll-schedules', { method: 'POST', body: JSON.stringify(data) });
+  if (Array.isArray(response)) {
+    schedules = response;
+  } else if (response && typeof response === 'object' && 'schedules' in response) {
+    schedules = response.schedules || [];
+  }
 
-export const updatePollSchedule = (id: number, data: Partial<PollSchedule>) =>
-  fetchApi<PollSchedule>(`/poll-schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  return schedules.map(convertToFrontendFormat);
+};
+
+export const createPollSchedule = async (data: Omit<PollSchedule, 'id'>): Promise<PollSchedule> => {
+  const backendData = convertToBackendFormat(data);
+  const response = await fetchApi<PollScheduleBackend>('/poll-schedules', {
+    method: 'POST',
+    body: JSON.stringify(backendData),
+  });
+  return convertToFrontendFormat(response);
+};
+
+export const updatePollSchedule = async (id: number, data: Partial<PollSchedule>): Promise<PollSchedule | void> => {
+  // For partial updates, we need to convert the fields that are being updated
+  const backendData: Record<string, unknown> = {};
+
+  if (data.enabled !== undefined) backendData.isActive = data.enabled;
+  if (data.name !== undefined) backendData.name = data.name;
+  if (data.targetGroup !== undefined) backendData.targetGroup = data.targetGroup;
+  if (data.customGroupId !== undefined) backendData.customGroupId = data.customGroupId;
+  if (data.dayOfWeek !== undefined) backendData.dayOfWeek = data.dayOfWeek;
+  if (data.pollOptions !== undefined) backendData.pollOptions = data.pollOptions;
+  if (data.time !== undefined) {
+    const [hour, minute] = data.time.split(':').map(Number);
+    backendData.scheduleHour = hour;
+    backendData.scheduleMinute = minute;
+  }
+
+  // Handle day updates
+  const dayFields = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+  const hasAnyDayField = dayFields.some(d => data[d] !== undefined);
+  if (hasAnyDayField) {
+    const scheduleDays: number[] = [];
+    if (data.sunday) scheduleDays.push(0);
+    if (data.monday) scheduleDays.push(1);
+    if (data.tuesday) scheduleDays.push(2);
+    if (data.wednesday) scheduleDays.push(3);
+    if (data.thursday) scheduleDays.push(4);
+    if (data.friday) scheduleDays.push(5);
+    if (data.saturday) scheduleDays.push(6);
+    backendData.scheduleDays = scheduleDays;
+  }
+
+  await fetchApi(`/poll-schedules/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(backendData),
+  });
+};
 
 export const deletePollSchedule = (id: number) =>
   fetchApi<void>(`/poll-schedules/${id}`, { method: 'DELETE' });
@@ -258,17 +379,37 @@ export const deletePollSchedule = (id: number) =>
 export const executePollSchedule = (id: number) =>
   fetchApi<{ success: boolean; message: string }>(`/poll-schedules/${id}/execute`, { method: 'POST' });
 
-// Students
-export const getStudents = (params?: { unit?: string; status?: string }) => {
+// Students - Handle both array and object responses
+const extractStudents = (response: { students: Student[] } | Student[]): Student[] => {
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'students' in response) {
+    return response.students || [];
+  }
+  return [];
+};
+
+export const getStudents = async (params?: { unit?: string; status?: string }): Promise<Student[]> => {
   const query = new URLSearchParams();
   if (params?.unit) query.set('unit', params.unit);
   if (params?.status) query.set('status', params.status);
-  return fetchApi<Student[]>(`/students?${query}`);
+  const response = await fetchApi<{ students: Student[] } | Student[]>(`/students?${query}`);
+  return extractStudents(response);
 };
 
-export const getStudentsWithStatus = () => fetchApi<Student[]>('/students/with-status');
-export const getOverdueStudents = () => fetchApi<Student[]>('/students/overdue');
-export const getStudentsDueToday = () => fetchApi<Student[]>('/students/due-today');
+export const getStudentsWithStatus = async (): Promise<Student[]> => {
+  const response = await fetchApi<{ students: Student[] } | Student[]>('/students/with-status');
+  return extractStudents(response);
+};
+
+export const getOverdueStudents = async (): Promise<Student[]> => {
+  const response = await fetchApi<{ students: Student[] } | Student[]>('/students/overdue');
+  return extractStudents(response);
+};
+
+export const getStudentsDueToday = async (): Promise<Student[]> => {
+  const response = await fetchApi<{ students: Student[] } | Student[]>('/students/due-today');
+  return extractStudents(response);
+};
 
 export const createStudent = (data: Omit<Student, 'id' | 'createdAt' | 'updatedAt'>) =>
   fetchApi<Student>('/students', { method: 'POST', body: JSON.stringify(data) });
@@ -324,10 +465,10 @@ export const updateSettings = (data: Partial<Settings>) =>
 
 // Bot Control
 export const pauseBot = (reason: string) =>
-  fetchApi<{ success: boolean }>('/bot/pause', { method: 'POST', body: JSON.stringify({ reason }) });
+  fetchApi<{ success: boolean }>('/settings/pause', { method: 'POST', body: JSON.stringify({ reason }) });
 
 export const resumeBot = () =>
-  fetchApi<{ success: boolean }>('/bot/resume', { method: 'POST' });
+  fetchApi<{ success: boolean }>('/settings/resume', { method: 'POST' });
 
 export const reconnectBot = () =>
   fetchApi<{ success: boolean }>('/bot/reconnect', { method: 'POST' });

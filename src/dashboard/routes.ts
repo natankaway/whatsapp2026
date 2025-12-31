@@ -67,27 +67,123 @@ export function createDashboardRoutes(): Router {
 
   router.get('/bookings', (req: Request, res: Response) => {
     try {
-      const { unit, date } = req.query;
+      const { unit, date, unitId } = req.query;
 
-      if (!unit || !date) {
-        res.status(400).json({ error: 'Parâmetros unit e date são obrigatórios' });
+      // Support both old format (unit + date) and new format (date + unitId)
+      if (date) {
+        const dateStr = date as string;
+
+        if (unitId) {
+          // New format: find unit by ID
+          const units = sqliteService.getUnits();
+          const targetUnit = units.find(u => u.id === parseInt(unitId as string));
+          if (!targetUnit) {
+            res.status(400).json({ error: 'Unidade não encontrada' });
+            return;
+          }
+          const bookings = sqliteService.getBookingsByDate(targetUnit.slug as 'recreio' | 'bangu', dateStr);
+          res.json(bookings.map(b => ({
+            ...b,
+            unitName: targetUnit.name,
+          })));
+          return;
+        }
+
+        if (unit) {
+          // Old format
+          const bookings = sqliteService.getBookingsByDate(unit as 'recreio' | 'bangu', dateStr);
+          res.json({
+            unit,
+            date: dateStr,
+            total: bookings.length,
+            bookings,
+          });
+          return;
+        }
+
+        // If only date is provided, return all bookings for that date
+        const recreioBookings = sqliteService.getBookingsByDate('recreio', dateStr);
+        const banguBookings = sqliteService.getBookingsByDate('bangu', dateStr);
+        const allBookings = [
+          ...recreioBookings.map(b => ({ ...b, unitName: 'Recreio' })),
+          ...banguBookings.map(b => ({ ...b, unitName: 'Bangu' })),
+        ];
+        res.json(allBookings);
         return;
       }
 
-      const bookings = sqliteService.getBookingsByDate(
-        unit as 'recreio' | 'bangu',
-        date as string
-      );
-
-      res.json({
-        unit,
-        date,
-        total: bookings.length,
-        bookings,
-      });
+      res.status(400).json({ error: 'Parâmetro date é obrigatório' });
     } catch (error) {
       logger.error('[Dashboard] Erro ao listar agendamentos', error);
       res.status(500).json({ error: 'Erro ao listar agendamentos' });
+    }
+  });
+
+  // Criar novo agendamento
+  router.post('/bookings', (req: Request, res: Response) => {
+    try {
+      const { name, phone, date, time, unitId, status, source } = req.body;
+
+      if (!name || !phone || !date || !time || !unitId) {
+        res.status(400).json({ error: 'Campos obrigatórios: name, phone, date, time, unitId' });
+        return;
+      }
+
+      // Find unit by ID
+      const units = sqliteService.getUnits();
+      const unit = units.find(u => u.id === unitId);
+      if (!unit) {
+        res.status(400).json({ error: 'Unidade não encontrada' });
+        return;
+      }
+
+      const booking = sqliteService.addBooking({
+        unit: unit.slug as 'recreio' | 'bangu',
+        date,
+        time,
+        name,
+        phone,
+        status: status || 'confirmed',
+        source: source || 'dashboard',
+      });
+
+      if (!booking) {
+        res.status(500).json({ error: 'Erro ao criar agendamento' });
+        return;
+      }
+
+      res.status(201).json({
+        ...booking,
+        unitId: unit.id,
+        unitName: unit.name,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar agendamento', error);
+      res.status(500).json({ error: 'Erro ao criar agendamento' });
+    }
+  });
+
+  // Atualizar agendamento
+  router.put('/bookings/:id', (req: Request, res: Response) => {
+    try {
+      const idParam = req.params.id;
+      if (!idParam) {
+        res.status(400).json({ error: 'ID não fornecido' });
+        return;
+      }
+      const id = parseInt(idParam, 10);
+      const updates = req.body;
+
+      const booking = sqliteService.updateBooking(id, updates);
+      if (!booking) {
+        res.status(404).json({ error: 'Agendamento não encontrado' });
+        return;
+      }
+
+      res.json(booking);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar agendamento', error);
+      res.status(500).json({ error: 'Erro ao atualizar agendamento' });
     }
   });
 
