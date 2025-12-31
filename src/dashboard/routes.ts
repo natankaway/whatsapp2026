@@ -1287,6 +1287,422 @@ export function createDashboardRoutes(): Router {
     }
   });
 
+  // ===========================================================================
+  // STUDENTS (Alunos)
+  // ===========================================================================
+
+  router.get('/students', (req: Request, res: Response) => {
+    try {
+      const { unit, status } = req.query;
+      const students = sqliteService.getStudents({
+        unit: unit as string,
+        status: status as string,
+      });
+
+      res.json({
+        total: students.length,
+        students,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar alunos', error);
+      res.status(500).json({ error: 'Erro ao listar alunos' });
+    }
+  });
+
+  router.get('/students/with-status', (_req: Request, res: Response) => {
+    try {
+      const students = sqliteService.getStudentsWithPaymentStatus();
+      const overdue = students.filter(s => s.isOverdue);
+      const upToDate = students.filter(s => !s.isOverdue);
+
+      res.json({
+        total: students.length,
+        overdueCount: overdue.length,
+        upToDateCount: upToDate.length,
+        students,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar alunos com status', error);
+      res.status(500).json({ error: 'Erro ao listar alunos' });
+    }
+  });
+
+  router.get('/students/overdue', (_req: Request, res: Response) => {
+    try {
+      const students = sqliteService.getOverdueStudents();
+
+      res.json({
+        total: students.length,
+        students,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar alunos inadimplentes', error);
+      res.status(500).json({ error: 'Erro ao listar alunos' });
+    }
+  });
+
+  router.get('/students/due-today', (_req: Request, res: Response) => {
+    try {
+      const students = sqliteService.getStudentsDueToday();
+
+      res.json({
+        total: students.length,
+        students,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar alunos com vencimento hoje', error);
+      res.status(500).json({ error: 'Erro ao listar alunos' });
+    }
+  });
+
+  router.get('/students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const student = sqliteService.getStudentById(id);
+      if (!student) {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+        return;
+      }
+
+      const payments = sqliteService.getPaymentsByStudent(id);
+
+      res.json({ ...student, payments });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar aluno', error);
+      res.status(500).json({ error: 'Erro ao buscar aluno' });
+    }
+  });
+
+  router.post('/students', (req: Request, res: Response) => {
+    try {
+      const { name, phone, email, unit, plan, planValue, dueDay, startDate, status, notes } = req.body;
+
+      if (!name || !phone || !unit || !plan || planValue === undefined || !dueDay || !startDate) {
+        res.status(400).json({ error: 'Campos obrigatórios: name, phone, unit, plan, planValue, dueDay, startDate' });
+        return;
+      }
+
+      if (!['recreio', 'bangu'].includes(unit)) {
+        res.status(400).json({ error: 'unit deve ser: recreio ou bangu' });
+        return;
+      }
+
+      if (dueDay < 1 || dueDay > 31) {
+        res.status(400).json({ error: 'dueDay deve ser entre 1 e 31' });
+        return;
+      }
+
+      const student = sqliteService.createStudent({
+        name,
+        phone,
+        email,
+        unit,
+        plan,
+        planValue: Math.round(planValue * 100), // Converter para centavos
+        dueDay,
+        startDate,
+        status: status || 'active',
+        notes,
+      });
+
+      if (student) {
+        logger.info(`[Dashboard] Aluno criado: ${name}`);
+        res.status(201).json(student);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar aluno' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar aluno', error);
+      res.status(500).json({ error: 'Erro ao criar aluno' });
+    }
+  });
+
+  router.put('/students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { name, phone, email, unit, plan, planValue, dueDay, startDate, status, notes } = req.body;
+
+      const updateData: Record<string, unknown> = {};
+      if (name !== undefined) updateData.name = name;
+      if (phone !== undefined) updateData.phone = phone;
+      if (email !== undefined) updateData.email = email;
+      if (unit !== undefined) updateData.unit = unit;
+      if (plan !== undefined) updateData.plan = plan;
+      if (planValue !== undefined) updateData.planValue = Math.round(planValue * 100);
+      if (dueDay !== undefined) updateData.dueDay = dueDay;
+      if (startDate !== undefined) updateData.startDate = startDate;
+      if (status !== undefined) updateData.status = status;
+      if (notes !== undefined) updateData.notes = notes;
+
+      const updated = sqliteService.updateStudent(id, updateData);
+
+      if (updated) {
+        logger.info(`[Dashboard] Aluno #${id} atualizado`);
+        const student = sqliteService.getStudentById(id);
+        res.json(student);
+      } else {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar aluno', error);
+      res.status(500).json({ error: 'Erro ao atualizar aluno' });
+    }
+  });
+
+  router.delete('/students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteStudent(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Aluno #${id} removido`);
+        res.json({ success: true, message: 'Aluno removido' });
+      } else {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover aluno', error);
+      res.status(500).json({ error: 'Erro ao remover aluno' });
+    }
+  });
+
+  // ===========================================================================
+  // PAYMENTS (Pagamentos)
+  // ===========================================================================
+
+  router.get('/payments', (req: Request, res: Response) => {
+    try {
+      const { studentId, referenceMonth, startDate, endDate } = req.query;
+
+      const payments = sqliteService.getPayments({
+        studentId: studentId ? parseInt(studentId as string, 10) : undefined,
+        referenceMonth: referenceMonth as string,
+        startDate: startDate as string,
+        endDate: endDate as string,
+      });
+
+      const totalAmount = payments.reduce((sum, p) => sum + p.amount, 0);
+
+      res.json({
+        total: payments.length,
+        totalAmount,
+        payments,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar pagamentos', error);
+      res.status(500).json({ error: 'Erro ao listar pagamentos' });
+    }
+  });
+
+  router.get('/payments/report/:month', (req: Request, res: Response) => {
+    try {
+      const month = req.params.month; // formato YYYY-MM
+
+      if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+        res.status(400).json({ error: 'Formato de mês inválido. Use YYYY-MM' });
+        return;
+      }
+
+      const report = sqliteService.getMonthlyReport(month);
+
+      res.json(report);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao gerar relatório', error);
+      res.status(500).json({ error: 'Erro ao gerar relatório' });
+    }
+  });
+
+  router.post('/payments', (req: Request, res: Response) => {
+    try {
+      const { studentId, amount, referenceMonth, paymentDate, paymentMethod, notes } = req.body;
+
+      if (!studentId || amount === undefined || !referenceMonth || !paymentDate || !paymentMethod) {
+        res.status(400).json({ error: 'Campos obrigatórios: studentId, amount, referenceMonth, paymentDate, paymentMethod' });
+        return;
+      }
+
+      if (!['pix', 'dinheiro', 'cartao', 'transferencia', 'outro'].includes(paymentMethod)) {
+        res.status(400).json({ error: 'paymentMethod deve ser: pix, dinheiro, cartao, transferencia ou outro' });
+        return;
+      }
+
+      // Verificar se aluno existe
+      const student = sqliteService.getStudentById(studentId);
+      if (!student) {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+        return;
+      }
+
+      const payment = sqliteService.createPayment({
+        studentId,
+        amount: Math.round(amount * 100), // Converter para centavos
+        referenceMonth,
+        paymentDate,
+        paymentMethod,
+        notes,
+      });
+
+      if (payment) {
+        logger.info(`[Dashboard] Pagamento registrado para aluno #${studentId}: R$ ${(amount).toFixed(2)}`);
+        res.status(201).json(payment);
+      } else {
+        res.status(500).json({ error: 'Erro ao registrar pagamento' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao registrar pagamento', error);
+      res.status(500).json({ error: 'Erro ao registrar pagamento' });
+    }
+  });
+
+  router.delete('/payments/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deletePayment(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Pagamento #${id} removido`);
+        res.json({ success: true, message: 'Pagamento removido' });
+      } else {
+        res.status(404).json({ error: 'Pagamento não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover pagamento', error);
+      res.status(500).json({ error: 'Erro ao remover pagamento' });
+    }
+  });
+
+  // ===========================================================================
+  // BILLING (Cobrança)
+  // ===========================================================================
+
+  router.post('/billing/send-reminder/:studentId', async (req: Request, res: Response) => {
+    try {
+      const studentId = parseInt(req.params.studentId ?? '0', 10);
+      if (isNaN(studentId)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const student = sqliteService.getStudentById(studentId);
+      if (!student) {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+        return;
+      }
+
+      if (!whatsappService.isConnected()) {
+        res.status(503).json({ error: 'WhatsApp não está conectado' });
+        return;
+      }
+
+      const sock = whatsappService.getSocket();
+      if (!sock) {
+        res.status(503).json({ error: 'Socket não disponível' });
+        return;
+      }
+
+      // Formatar número do telefone
+      let phone = student.phone.replace(/\D/g, '');
+      if (!phone.startsWith('55')) {
+        phone = '55' + phone;
+      }
+      const jid = phone + '@s.whatsapp.net';
+
+      // Mensagem de cobrança
+      const message = `Fala, craque.
+Bom dia ⚡️⚡️⚡️
+Passando pra lembrar que sua mensalidade vence hoje.
+Ter você conosco é muito importante pra nós.
+E aí, vamos continuar melhorando juntos?!
+
+Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
+
+      await sock.sendMessage(jid, { text: message });
+
+      logger.info(`[Dashboard] Lembrete de cobrança enviado para ${student.name} (${student.phone})`);
+      res.json({ success: true, message: 'Lembrete enviado com sucesso' });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao enviar lembrete', error);
+      res.status(500).json({ error: 'Erro ao enviar lembrete' });
+    }
+  });
+
+  router.post('/billing/send-bulk-reminders', async (_req: Request, res: Response) => {
+    try {
+      if (!whatsappService.isConnected()) {
+        res.status(503).json({ error: 'WhatsApp não está conectado' });
+        return;
+      }
+
+      const sock = whatsappService.getSocket();
+      if (!sock) {
+        res.status(503).json({ error: 'Socket não disponível' });
+        return;
+      }
+
+      const students = sqliteService.getStudentsDueToday();
+      const results: { name: string; phone: string; success: boolean; error?: string }[] = [];
+
+      const message = `Fala, craque.
+Bom dia ⚡️⚡️⚡️
+Passando pra lembrar que sua mensalidade vence hoje.
+Ter você conosco é muito importante pra nós.
+E aí, vamos continuar melhorando juntos?!
+
+Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
+
+      for (const student of students) {
+        try {
+          let phone = student.phone.replace(/\D/g, '');
+          if (!phone.startsWith('55')) {
+            phone = '55' + phone;
+          }
+          const jid = phone + '@s.whatsapp.net';
+
+          await sock.sendMessage(jid, { text: message });
+
+          // Delay entre mensagens para evitar bloqueio
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          results.push({ name: student.name, phone: student.phone, success: true });
+          logger.info(`[Dashboard] Lembrete enviado para ${student.name}`);
+        } catch (error) {
+          results.push({ name: student.name, phone: student.phone, success: false, error: String(error) });
+          logger.error(`[Dashboard] Erro ao enviar lembrete para ${student.name}`, error);
+        }
+      }
+
+      res.json({
+        total: students.length,
+        sent: results.filter(r => r.success).length,
+        failed: results.filter(r => !r.success).length,
+        results,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao enviar lembretes em lote', error);
+      res.status(500).json({ error: 'Erro ao enviar lembretes' });
+    }
+  });
+
   return router;
 }
 

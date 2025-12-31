@@ -117,6 +117,74 @@ export interface BotSettings {
   pausedMessage: string;
 }
 
+// =============================================================================
+// INTERFACES PARA CONTROLE DE MENSALIDADES
+// =============================================================================
+
+export interface StudentRecord {
+  id?: number;
+  name: string;
+  phone: string;
+  email?: string;
+  unit: 'recreio' | 'bangu';
+  plan: string; // ex: "1x", "2x", "3x", "5x", "plataforma"
+  planValue: number; // valor em centavos
+  dueDay: number; // dia do vencimento (1-31)
+  startDate: string; // data de inicio
+  status: 'active' | 'inactive' | 'suspended';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface StudentRecordRaw {
+  id: number;
+  name: string;
+  phone: string;
+  email: string | null;
+  unit: string;
+  plan: string;
+  planValue: number;
+  dueDay: number;
+  startDate: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentRecord {
+  id?: number;
+  studentId: number;
+  amount: number; // valor em centavos
+  referenceMonth: string; // YYYY-MM
+  paymentDate: string; // YYYY-MM-DD
+  paymentMethod: 'pix' | 'dinheiro' | 'cartao' | 'transferencia' | 'outro';
+  notes?: string;
+  createdAt: string;
+}
+
+interface PaymentRecordRaw {
+  id: number;
+  studentId: number;
+  amount: number;
+  referenceMonth: string;
+  paymentDate: string;
+  paymentMethod: string;
+  notes: string | null;
+  createdAt: string;
+  // Campos do JOIN com students
+  studentName?: string;
+  studentPhone?: string;
+  studentUnit?: string;
+}
+
+export interface StudentWithPayments extends StudentRecord {
+  lastPayment?: PaymentRecord;
+  isOverdue?: boolean;
+  daysOverdue?: number;
+}
+
 export interface UnitRecord {
   id?: number;
   slug: string;
@@ -528,6 +596,52 @@ class SQLiteService {
               schedule.scheduleDays
             );
           }
+        },
+      },
+      {
+        name: '009_create_students_payments_tables',
+        up: (db) => {
+          // Tabela de alunos
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS students (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              email TEXT,
+              unit TEXT NOT NULL CHECK(unit IN ('recreio', 'bangu')),
+              plan TEXT NOT NULL,
+              plan_value INTEGER NOT NULL DEFAULT 0,
+              due_day INTEGER NOT NULL CHECK(due_day >= 1 AND due_day <= 31),
+              start_date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive', 'suspended')),
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_students_unit ON students(unit)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_students_status ON students(status)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_students_phone ON students(phone)`);
+
+          // Tabela de pagamentos
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS payments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              student_id INTEGER NOT NULL,
+              amount INTEGER NOT NULL,
+              reference_month TEXT NOT NULL,
+              payment_date TEXT NOT NULL,
+              payment_method TEXT NOT NULL CHECK(payment_method IN ('pix', 'dinheiro', 'cartao', 'transferencia', 'outro')),
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_payments_reference ON payments(reference_month)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date)`);
         },
       },
     ];
@@ -1625,6 +1739,389 @@ class SQLiteService {
       this.db = null;
       logger.info('[SQLite] Banco fechado');
     }
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE ALUNOS (STUDENTS)
+  // ===========================================================================
+
+  getStudents(filters?: { unit?: string; status?: string }): StudentRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT id, name, phone, email, unit, plan, plan_value as planValue, due_day as dueDay,
+             start_date as startDate, status, notes, created_at as createdAt, updated_at as updatedAt
+      FROM students
+    `;
+
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (filters?.unit) {
+      conditions.push('unit = ?');
+      values.push(filters.unit);
+    }
+
+    if (filters?.status) {
+      conditions.push('status = ?');
+      values.push(filters.status);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY name';
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...values) as StudentRecordRaw[];
+    return rows.map(this.parseStudentRow);
+  }
+
+  getStudentById(id: number): StudentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, phone, email, unit, plan, plan_value as planValue, due_day as dueDay,
+             start_date as startDate, status, notes, created_at as createdAt, updated_at as updatedAt
+      FROM students WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as StudentRecordRaw | undefined;
+    return row ? this.parseStudentRow(row) : null;
+  }
+
+  getStudentByPhone(phone: string): StudentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    // Normalizar telefone (remover caracteres não numéricos)
+    const normalizedPhone = phone.replace(/\D/g, '');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, phone, email, unit, plan, plan_value as planValue, due_day as dueDay,
+             start_date as startDate, status, notes, created_at as createdAt, updated_at as updatedAt
+      FROM students WHERE REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') LIKE ?
+    `);
+
+    const row = stmt.get(`%${normalizedPhone}%`) as StudentRecordRaw | undefined;
+    return row ? this.parseStudentRow(row) : null;
+  }
+
+  createStudent(student: Omit<StudentRecord, 'id' | 'createdAt' | 'updatedAt'>): StudentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO students (name, phone, email, unit, plan, plan_value, due_day, start_date, status, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        student.name,
+        student.phone,
+        student.email ?? null,
+        student.unit,
+        student.plan,
+        student.planValue,
+        student.dueDay,
+        student.startDate,
+        student.status,
+        student.notes ?? null,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...student,
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar aluno', error);
+      return null;
+    }
+  }
+
+  updateStudent(id: number, student: Partial<Omit<StudentRecord, 'id' | 'createdAt' | 'updatedAt'>>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if (student.name !== undefined) { updates.push('name = ?'); values.push(student.name); }
+      if (student.phone !== undefined) { updates.push('phone = ?'); values.push(student.phone); }
+      if (student.email !== undefined) { updates.push('email = ?'); values.push(student.email); }
+      if (student.unit !== undefined) { updates.push('unit = ?'); values.push(student.unit); }
+      if (student.plan !== undefined) { updates.push('plan = ?'); values.push(student.plan); }
+      if (student.planValue !== undefined) { updates.push('plan_value = ?'); values.push(student.planValue); }
+      if (student.dueDay !== undefined) { updates.push('due_day = ?'); values.push(student.dueDay); }
+      if (student.startDate !== undefined) { updates.push('start_date = ?'); values.push(student.startDate); }
+      if (student.status !== undefined) { updates.push('status = ?'); values.push(student.status); }
+      if (student.notes !== undefined) { updates.push('notes = ?'); values.push(student.notes); }
+
+      if (updates.length === 0) return false;
+
+      updates.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`UPDATE students SET ${updates.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar aluno #${id}`, error);
+      return false;
+    }
+  }
+
+  deleteStudent(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM students WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  private parseStudentRow(row: StudentRecordRaw): StudentRecord {
+    return {
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      email: row.email ?? undefined,
+      unit: row.unit as 'recreio' | 'bangu',
+      plan: row.plan,
+      planValue: row.planValue,
+      dueDay: row.dueDay,
+      startDate: row.startDate,
+      status: row.status as 'active' | 'inactive' | 'suspended',
+      notes: row.notes ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE PAGAMENTOS (PAYMENTS)
+  // ===========================================================================
+
+  getPayments(filters?: { studentId?: number; referenceMonth?: string; startDate?: string; endDate?: string }): (PaymentRecord & { studentName?: string; studentPhone?: string; studentUnit?: string })[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT p.id, p.student_id as studentId, p.amount, p.reference_month as referenceMonth,
+             p.payment_date as paymentDate, p.payment_method as paymentMethod, p.notes,
+             p.created_at as createdAt, s.name as studentName, s.phone as studentPhone, s.unit as studentUnit
+      FROM payments p
+      LEFT JOIN students s ON p.student_id = s.id
+    `;
+
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (filters?.studentId) {
+      conditions.push('p.student_id = ?');
+      values.push(filters.studentId);
+    }
+
+    if (filters?.referenceMonth) {
+      conditions.push('p.reference_month = ?');
+      values.push(filters.referenceMonth);
+    }
+
+    if (filters?.startDate) {
+      conditions.push('p.payment_date >= ?');
+      values.push(filters.startDate);
+    }
+
+    if (filters?.endDate) {
+      conditions.push('p.payment_date <= ?');
+      values.push(filters.endDate);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY p.payment_date DESC';
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...values) as PaymentRecordRaw[];
+    return rows.map(this.parsePaymentRow);
+  }
+
+  getPaymentsByStudent(studentId: number): PaymentRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, student_id as studentId, amount, reference_month as referenceMonth,
+             payment_date as paymentDate, payment_method as paymentMethod, notes, created_at as createdAt
+      FROM payments WHERE student_id = ? ORDER BY payment_date DESC
+    `);
+
+    const rows = stmt.all(studentId) as PaymentRecordRaw[];
+    return rows.map(this.parsePaymentRow);
+  }
+
+  getLastPaymentByStudent(studentId: number): PaymentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, student_id as studentId, amount, reference_month as referenceMonth,
+             payment_date as paymentDate, payment_method as paymentMethod, notes, created_at as createdAt
+      FROM payments WHERE student_id = ? ORDER BY payment_date DESC LIMIT 1
+    `);
+
+    const row = stmt.get(studentId) as PaymentRecordRaw | undefined;
+    return row ? this.parsePaymentRow(row) : null;
+  }
+
+  createPayment(payment: Omit<PaymentRecord, 'id' | 'createdAt'>): PaymentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO payments (student_id, amount, reference_month, payment_date, payment_method, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        payment.studentId,
+        payment.amount,
+        payment.referenceMonth,
+        payment.paymentDate,
+        payment.paymentMethod,
+        payment.notes ?? null,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...payment,
+        createdAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao registrar pagamento', error);
+      return null;
+    }
+  }
+
+  deletePayment(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM payments WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  private parsePaymentRow(row: PaymentRecordRaw): PaymentRecord & { studentName?: string; studentPhone?: string; studentUnit?: string } {
+    return {
+      id: row.id,
+      studentId: row.studentId,
+      amount: row.amount,
+      referenceMonth: row.referenceMonth,
+      paymentDate: row.paymentDate,
+      paymentMethod: row.paymentMethod as PaymentRecord['paymentMethod'],
+      notes: row.notes ?? undefined,
+      createdAt: row.createdAt,
+      studentName: row.studentName,
+      studentPhone: row.studentPhone,
+      studentUnit: row.studentUnit,
+    };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE RELATÓRIOS DE MENSALIDADES
+  // ===========================================================================
+
+  getStudentsWithPaymentStatus(): StudentWithPayments[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const students = this.getStudents({ status: 'active' });
+    const today = new Date();
+    const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+    return students.map(student => {
+      const lastPayment = this.getLastPaymentByStudent(student.id!);
+
+      // Calcular se está em atraso
+      let isOverdue = false;
+      let daysOverdue = 0;
+
+      if (lastPayment) {
+        // Se o último pagamento foi para um mês anterior ao atual
+        if (lastPayment.referenceMonth < currentMonth) {
+          isOverdue = true;
+          // Calcular dias de atraso desde o vencimento do mês atual
+          const dueDate = new Date(today.getFullYear(), today.getMonth(), student.dueDay);
+          if (today > dueDate) {
+            daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+          }
+        }
+      } else {
+        // Nunca pagou - verificar se já passou do vencimento
+        const dueDate = new Date(today.getFullYear(), today.getMonth(), student.dueDay);
+        if (today > dueDate) {
+          isOverdue = true;
+          daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+        }
+      }
+
+      return {
+        ...student,
+        lastPayment: lastPayment || undefined,
+        isOverdue,
+        daysOverdue,
+      };
+    });
+  }
+
+  getOverdueStudents(): StudentWithPayments[] {
+    return this.getStudentsWithPaymentStatus().filter(s => s.isOverdue);
+  }
+
+  getStudentsDueToday(): StudentRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const today = new Date();
+    const dueDay = today.getDate();
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, phone, email, unit, plan, plan_value as planValue, due_day as dueDay,
+             start_date as startDate, status, notes, created_at as createdAt, updated_at as updatedAt
+      FROM students WHERE status = 'active' AND due_day = ?
+    `);
+
+    const rows = stmt.all(dueDay) as StudentRecordRaw[];
+    return rows.map(this.parseStudentRow);
+  }
+
+  getMonthlyReport(month: string): {
+    totalStudents: number;
+    totalPaid: number;
+    totalPending: number;
+    totalRevenue: number;
+    payments: (PaymentRecord & { studentName?: string })[];
+  } {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const activeStudents = this.getStudents({ status: 'active' });
+    const payments = this.getPayments({ referenceMonth: month });
+    const paidStudentIds = new Set(payments.map(p => p.studentId));
+
+    const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
+
+    return {
+      totalStudents: activeStudents.length,
+      totalPaid: paidStudentIds.size,
+      totalPending: activeStudents.length - paidStudentIds.size,
+      totalRevenue,
+      payments,
+    };
   }
 
   isReady(): boolean {

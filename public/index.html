@@ -1210,6 +1210,7 @@
         <button class="tab" onclick="showTab('manage')">Gerenciar</button>
         <button class="tab" onclick="showTab('units')">Unidades</button>
         <button class="tab" onclick="showTab('polls')">Enquetes</button>
+        <button class="tab" onclick="showTab('billing')">Mensalidades</button>
         <button class="tab" onclick="showTab('settings')">Configuracoes</button>
         <button class="tab" onclick="showTab('queues')">Filas</button>
         <button class="tab" onclick="showTab('reminders')">Lembretes</button>
@@ -1518,6 +1519,220 @@
               <div style="display: flex; gap: 12px; margin-top: 30px;">
                 <button type="submit" class="btn" style="flex: 1;">Salvar Agendamento</button>
                 <button type="button" onclick="closeScheduleModal()" style="flex: 1; padding: 14px; border: 2px solid var(--text-muted); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; transition: all 0.3s;">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Billing Tab (Mensalidades) -->
+      <div id="billingTab" class="section" style="display: none;">
+        <div class="section-header">
+          <h2 class="section-title">Controle de Mensalidades</h2>
+          <button onclick="showCreateStudentModal()" class="btn" style="width: auto; padding: 10px 20px;">+ Novo Aluno</button>
+        </div>
+
+        <!-- Sub-tabs -->
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+          <button class="poll-subtab active" onclick="showBillingSubtab('students')">Alunos</button>
+          <button class="poll-subtab" onclick="showBillingSubtab('payments')">Pagamentos</button>
+          <button class="poll-subtab" onclick="showBillingSubtab('overdue')">Inadimplentes</button>
+          <button class="poll-subtab" onclick="showBillingSubtab('report')">Relatorio</button>
+        </div>
+
+        <!-- Stats Cards -->
+        <div id="billingStats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;">
+          <div class="card" style="text-align: center; padding: 15px;">
+            <div style="font-size: 24px; font-weight: bold; color: var(--primary);" id="statTotalStudents">0</div>
+            <div style="font-size: 12px; color: var(--text-muted);">Total Alunos</div>
+          </div>
+          <div class="card" style="text-align: center; padding: 15px;">
+            <div style="font-size: 24px; font-weight: bold; color: var(--success);" id="statUpToDate">0</div>
+            <div style="font-size: 12px; color: var(--text-muted);">Em Dia</div>
+          </div>
+          <div class="card" style="text-align: center; padding: 15px;">
+            <div style="font-size: 24px; font-weight: bold; color: var(--danger);" id="statOverdue">0</div>
+            <div style="font-size: 12px; color: var(--text-muted);">Inadimplentes</div>
+          </div>
+          <div class="card" style="text-align: center; padding: 15px;">
+            <div style="font-size: 24px; font-weight: bold; color: var(--warning);" id="statDueToday">0</div>
+            <div style="font-size: 12px; color: var(--text-muted);">Vencem Hoje</div>
+          </div>
+        </div>
+
+        <!-- Students List -->
+        <div id="studentsContent">
+          <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+            <select id="filterUnit" onchange="filterStudents()" style="padding: 8px 12px; border: 1px solid var(--border-glass); border-radius: 6px; background: var(--bg-dark); color: var(--text);">
+              <option value="">Todas Unidades</option>
+              <option value="recreio">Recreio</option>
+              <option value="bangu">Bangu</option>
+            </select>
+            <select id="filterStatus" onchange="filterStudents()" style="padding: 8px 12px; border: 1px solid var(--border-glass); border-radius: 6px; background: var(--bg-dark); color: var(--text);">
+              <option value="">Todos Status</option>
+              <option value="active">Ativos</option>
+              <option value="inactive">Inativos</option>
+              <option value="suspended">Suspensos</option>
+            </select>
+          </div>
+          <div id="studentsList" class="loading">Carregando...</div>
+        </div>
+
+        <!-- Payments List -->
+        <div id="paymentsContent" style="display: none;">
+          <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; align-items: center;">
+            <input type="month" id="filterPaymentMonth" onchange="loadPayments()" style="padding: 8px 12px; border: 1px solid var(--border-glass); border-radius: 6px; background: var(--bg-dark); color: var(--text);">
+            <button onclick="loadPayments()" style="padding: 8px 16px; background: var(--primary); border: none; color: #fff; border-radius: 6px; cursor: pointer;">Filtrar</button>
+          </div>
+          <div id="paymentsList" class="loading">Carregando...</div>
+        </div>
+
+        <!-- Overdue List -->
+        <div id="overdueContent" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <p style="color: var(--text-muted);">Alunos com mensalidade em atraso</p>
+            <button onclick="sendBulkReminders()" style="padding: 8px 16px; background: var(--warning); border: none; color: #000; border-radius: 6px; cursor: pointer;">Enviar Cobranca para Todos</button>
+          </div>
+          <div id="overdueList" class="loading">Carregando...</div>
+        </div>
+
+        <!-- Monthly Report -->
+        <div id="reportContent" style="display: none;">
+          <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
+            <input type="month" id="reportMonth" style="padding: 8px 12px; border: 1px solid var(--border-glass); border-radius: 6px; background: var(--bg-dark); color: var(--text);">
+            <button onclick="loadMonthlyReport()" style="padding: 8px 16px; background: var(--primary); border: none; color: #fff; border-radius: 6px; cursor: pointer;">Gerar Relatorio</button>
+          </div>
+          <div id="reportResult"></div>
+        </div>
+
+        <!-- Create/Edit Student Modal -->
+        <div id="studentModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 1000; overflow-y: auto;">
+          <div style="max-width: 600px; margin: 40px auto; background: var(--bg-card-solid); border-radius: var(--radius-lg); padding: 30px; border: 1px solid var(--border-glass);">
+            <h3 id="studentModalTitle" style="margin-bottom: 24px; font-size: 20px;">Novo Aluno</h3>
+            <form id="studentForm">
+              <input type="hidden" id="studentId">
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                  <label>Nome Completo</label>
+                  <input type="text" id="studentName" required placeholder="Nome do aluno">
+                </div>
+                <div class="form-group">
+                  <label>Telefone (WhatsApp)</label>
+                  <input type="text" id="studentPhone" required placeholder="(21) 99999-9999">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Email (opcional)</label>
+                <input type="email" id="studentEmail" placeholder="email@exemplo.com">
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                  <label>Unidade</label>
+                  <select id="studentUnit" required style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                    <option value="recreio">Recreio</option>
+                    <option value="bangu">Bangu</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Plano</label>
+                  <select id="studentPlan" required onchange="updatePlanValue()" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                    <option value="1x">1x por semana</option>
+                    <option value="2x">2x por semana</option>
+                    <option value="3x">3x por semana</option>
+                    <option value="5x">5x por semana</option>
+                    <option value="plataforma">Plataforma (Gympass/TotalPass)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                  <label>Valor (R$)</label>
+                  <input type="number" id="studentPlanValue" required step="0.01" min="0" placeholder="100.00" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+                <div class="form-group">
+                  <label>Dia Vencimento</label>
+                  <input type="number" id="studentDueDay" required min="1" max="31" value="10" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+                <div class="form-group">
+                  <label>Data Inicio</label>
+                  <input type="date" id="studentStartDate" required style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Status</label>
+                <select id="studentStatus" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                  <option value="active">Ativo</option>
+                  <option value="inactive">Inativo</option>
+                  <option value="suspended">Suspenso</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>Observacoes (opcional)</label>
+                <textarea id="studentNotes" rows="2" placeholder="Observacoes sobre o aluno..." style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text); resize: vertical;"></textarea>
+              </div>
+
+              <div style="display: flex; gap: 12px; margin-top: 20px;">
+                <button type="submit" class="btn" style="flex: 1;">Salvar</button>
+                <button type="button" onclick="closeStudentModal()" style="flex: 1; padding: 14px; border: 2px solid var(--text-muted); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Register Payment Modal -->
+        <div id="paymentModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 1000; overflow-y: auto;">
+          <div style="max-width: 500px; margin: 40px auto; background: var(--bg-card-solid); border-radius: var(--radius-lg); padding: 30px; border: 1px solid var(--border-glass);">
+            <h3 style="margin-bottom: 24px; font-size: 20px;">Registrar Pagamento</h3>
+            <form id="paymentForm">
+              <input type="hidden" id="paymentStudentId">
+
+              <div class="form-group">
+                <label>Aluno</label>
+                <input type="text" id="paymentStudentName" readonly style="background: var(--bg-glass);">
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                  <label>Valor (R$)</label>
+                  <input type="number" id="paymentAmount" required step="0.01" min="0" placeholder="100.00" style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+                <div class="form-group">
+                  <label>Mes Referencia</label>
+                  <input type="month" id="paymentReferenceMonth" required style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                  <label>Data Pagamento</label>
+                  <input type="date" id="paymentDate" required style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                </div>
+                <div class="form-group">
+                  <label>Forma de Pagamento</label>
+                  <select id="paymentMethod" required style="width: 100%; padding: 12px 16px; border: 2px solid var(--border-glass); border-radius: 8px; background: var(--bg-dark); color: var(--text);">
+                    <option value="pix">PIX</option>
+                    <option value="dinheiro">Dinheiro</option>
+                    <option value="cartao">Cartao</option>
+                    <option value="transferencia">Transferencia</option>
+                    <option value="outro">Outro</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Observacoes (opcional)</label>
+                <input type="text" id="paymentNotes" placeholder="Observacoes...">
+              </div>
+
+              <div style="display: flex; gap: 12px; margin-top: 20px;">
+                <button type="submit" class="btn" style="flex: 1;">Registrar Pagamento</button>
+                <button type="button" onclick="closePaymentModal()" style="flex: 1; padding: 14px; border: 2px solid var(--text-muted); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;">Cancelar</button>
               </div>
             </form>
           </div>
@@ -2771,7 +2986,472 @@
       }
     }
 
-    // Update loadAllData to include settings
+    // =========================================================================
+    // BILLING/MENSALIDADES MANAGEMENT
+    // =========================================================================
+
+    let currentStudents = [];
+    let currentStudentsWithStatus = [];
+
+    const planValues = {
+      recreio: { '1x': 100, '2x': 150, '3x': 200, '5x': 250, 'plataforma': 0 },
+      bangu: { '1x': 100, '2x': 120, '3x': 150, '5x': 200, 'plataforma': 0 }
+    };
+
+    async function loadStudents() {
+      try {
+        const unit = document.getElementById('filterUnit')?.value || '';
+        const status = document.getElementById('filterStatus')?.value || '';
+
+        const params = new URLSearchParams();
+        if (unit) params.append('unit', unit);
+        if (status) params.append('status', status);
+
+        const data = await fetchApi('/students' + (params.toString() ? '?' + params : ''));
+        currentStudents = data.students;
+
+        renderStudentsList(data.students);
+      } catch (error) {
+        console.error('Error loading students:', error);
+        document.getElementById('studentsList').innerHTML = '<p style="color: var(--danger);">Erro ao carregar alunos</p>';
+      }
+    }
+
+    async function loadStudentsWithStatus() {
+      try {
+        const data = await fetchApi('/students/with-status');
+        currentStudentsWithStatus = data.students;
+
+        document.getElementById('statTotalStudents').textContent = data.total;
+        document.getElementById('statUpToDate').textContent = data.upToDateCount;
+        document.getElementById('statOverdue').textContent = data.overdueCount;
+
+        // Load due today separately
+        const dueToday = await fetchApi('/students/due-today');
+        document.getElementById('statDueToday').textContent = dueToday.total;
+
+        return data;
+      } catch (error) {
+        console.error('Error loading students with status:', error);
+      }
+    }
+
+    function renderStudentsList(students) {
+      const content = document.getElementById('studentsList');
+
+      if (students.length === 0) {
+        content.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 40px;">Nenhum aluno encontrado.</p>';
+        return;
+      }
+
+      content.innerHTML = `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Telefone</th>
+              <th>Unidade</th>
+              <th>Plano</th>
+              <th>Vencimento</th>
+              <th>Status</th>
+              <th>Acoes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${students.map(s => `
+              <tr>
+                <td><strong>${s.name}</strong></td>
+                <td>${s.phone}</td>
+                <td><span class="badge badge-info">${s.unit}</span></td>
+                <td>${s.plan} - R$ ${(s.planValue / 100).toFixed(2)}</td>
+                <td>Dia ${s.dueDay}</td>
+                <td><span class="badge ${s.status === 'active' ? 'badge-success' : s.status === 'suspended' ? 'badge-warning' : ''}">${s.status}</span></td>
+                <td>
+                  <button onclick="showPaymentModal(${s.id}, '${s.name}', ${s.planValue})" class="send-btn" style="font-size: 11px; padding: 4px 8px;">Pagamento</button>
+                  <button onclick="editStudent(${s.id})" class="edit-btn" style="font-size: 11px; padding: 4px 8px;">Editar</button>
+                  <button onclick="sendReminder(${s.id})" style="font-size: 11px; padding: 4px 8px; background: var(--warning); border: none; color: #000; border-radius: 4px; cursor: pointer;">Cobrar</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function filterStudents() {
+      loadStudents();
+    }
+
+    function showBillingSubtab(tab) {
+      document.querySelectorAll('#billingTab .poll-subtab').forEach(el => el.classList.remove('active'));
+      event.target.classList.add('active');
+
+      document.getElementById('studentsContent').style.display = tab === 'students' ? 'block' : 'none';
+      document.getElementById('paymentsContent').style.display = tab === 'payments' ? 'block' : 'none';
+      document.getElementById('overdueContent').style.display = tab === 'overdue' ? 'block' : 'none';
+      document.getElementById('reportContent').style.display = tab === 'report' ? 'block' : 'none';
+
+      if (tab === 'students') loadStudents();
+      if (tab === 'payments') loadPayments();
+      if (tab === 'overdue') loadOverdueStudents();
+      if (tab === 'report') {
+        const now = new Date();
+        document.getElementById('reportMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      }
+    }
+
+    function showCreateStudentModal() {
+      document.getElementById('studentModalTitle').textContent = 'Novo Aluno';
+      document.getElementById('studentId').value = '';
+      document.getElementById('studentName').value = '';
+      document.getElementById('studentPhone').value = '';
+      document.getElementById('studentEmail').value = '';
+      document.getElementById('studentUnit').value = 'recreio';
+      document.getElementById('studentPlan').value = '1x';
+      document.getElementById('studentPlanValue').value = '100';
+      document.getElementById('studentDueDay').value = new Date().getDate();
+      document.getElementById('studentStartDate').value = new Date().toISOString().split('T')[0];
+      document.getElementById('studentStatus').value = 'active';
+      document.getElementById('studentNotes').value = '';
+
+      document.getElementById('studentModal').style.display = 'block';
+    }
+
+    async function editStudent(id) {
+      try {
+        const student = await fetchApi('/students/' + id);
+
+        document.getElementById('studentModalTitle').textContent = 'Editar Aluno';
+        document.getElementById('studentId').value = student.id;
+        document.getElementById('studentName').value = student.name;
+        document.getElementById('studentPhone').value = student.phone;
+        document.getElementById('studentEmail').value = student.email || '';
+        document.getElementById('studentUnit').value = student.unit;
+        document.getElementById('studentPlan').value = student.plan;
+        document.getElementById('studentPlanValue').value = (student.planValue / 100).toFixed(2);
+        document.getElementById('studentDueDay').value = student.dueDay;
+        document.getElementById('studentStartDate').value = student.startDate;
+        document.getElementById('studentStatus').value = student.status;
+        document.getElementById('studentNotes').value = student.notes || '';
+
+        document.getElementById('studentModal').style.display = 'block';
+      } catch (error) {
+        alert('Erro ao carregar aluno');
+      }
+    }
+
+    function closeStudentModal() {
+      document.getElementById('studentModal').style.display = 'none';
+    }
+
+    function updatePlanValue() {
+      const unit = document.getElementById('studentUnit').value;
+      const plan = document.getElementById('studentPlan').value;
+      const value = planValues[unit]?.[plan] || 0;
+      document.getElementById('studentPlanValue').value = value;
+    }
+
+    document.getElementById('studentUnit').addEventListener('change', updatePlanValue);
+
+    document.getElementById('studentForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const id = document.getElementById('studentId').value;
+      const data = {
+        name: document.getElementById('studentName').value,
+        phone: document.getElementById('studentPhone').value,
+        email: document.getElementById('studentEmail').value || null,
+        unit: document.getElementById('studentUnit').value,
+        plan: document.getElementById('studentPlan').value,
+        planValue: parseFloat(document.getElementById('studentPlanValue').value),
+        dueDay: parseInt(document.getElementById('studentDueDay').value),
+        startDate: document.getElementById('studentStartDate').value,
+        status: document.getElementById('studentStatus').value,
+        notes: document.getElementById('studentNotes').value || null
+      };
+
+      try {
+        const response = await fetch('/api/students' + (id ? '/' + id : ''), {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+          closeStudentModal();
+          loadStudents();
+          loadStudentsWithStatus();
+          alert(id ? 'Aluno atualizado!' : 'Aluno cadastrado!');
+        } else {
+          const error = await response.json();
+          alert('Erro: ' + (error.error || 'Falha ao salvar'));
+        }
+      } catch (error) {
+        alert('Erro ao salvar aluno');
+      }
+    });
+
+    // Payment Modal
+    function showPaymentModal(studentId, studentName, planValue) {
+      document.getElementById('paymentStudentId').value = studentId;
+      document.getElementById('paymentStudentName').value = studentName;
+      document.getElementById('paymentAmount').value = (planValue / 100).toFixed(2);
+
+      const now = new Date();
+      document.getElementById('paymentReferenceMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      document.getElementById('paymentDate').value = now.toISOString().split('T')[0];
+      document.getElementById('paymentMethod').value = 'pix';
+      document.getElementById('paymentNotes').value = '';
+
+      document.getElementById('paymentModal').style.display = 'block';
+    }
+
+    function closePaymentModal() {
+      document.getElementById('paymentModal').style.display = 'none';
+    }
+
+    document.getElementById('paymentForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const data = {
+        studentId: parseInt(document.getElementById('paymentStudentId').value),
+        amount: parseFloat(document.getElementById('paymentAmount').value),
+        referenceMonth: document.getElementById('paymentReferenceMonth').value,
+        paymentDate: document.getElementById('paymentDate').value,
+        paymentMethod: document.getElementById('paymentMethod').value,
+        notes: document.getElementById('paymentNotes').value || null
+      };
+
+      try {
+        const response = await fetch('/api/payments', {
+          method: 'POST',
+          headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+          closePaymentModal();
+          loadStudentsWithStatus();
+          loadPayments();
+          alert('Pagamento registrado!');
+        } else {
+          const error = await response.json();
+          alert('Erro: ' + (error.error || 'Falha ao registrar'));
+        }
+      } catch (error) {
+        alert('Erro ao registrar pagamento');
+      }
+    });
+
+    async function loadPayments() {
+      try {
+        const month = document.getElementById('filterPaymentMonth')?.value;
+        const params = month ? `?referenceMonth=${month}` : '';
+
+        const data = await fetchApi('/payments' + params);
+
+        const content = document.getElementById('paymentsList');
+
+        if (data.payments.length === 0) {
+          content.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 40px;">Nenhum pagamento encontrado.</p>';
+          return;
+        }
+
+        content.innerHTML = `
+          <div style="margin-bottom: 15px; padding: 10px; background: var(--bg-glass); border-radius: 8px;">
+            <strong>Total: R$ ${(data.totalAmount / 100).toFixed(2)}</strong> (${data.total} pagamentos)
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Aluno</th>
+                <th>Valor</th>
+                <th>Referencia</th>
+                <th>Data</th>
+                <th>Forma</th>
+                <th>Acoes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.payments.map(p => `
+                <tr>
+                  <td>${p.studentName || 'N/A'}</td>
+                  <td><strong>R$ ${(p.amount / 100).toFixed(2)}</strong></td>
+                  <td>${p.referenceMonth}</td>
+                  <td>${formatDateBR(p.paymentDate)}</td>
+                  <td><span class="badge badge-info">${p.paymentMethod}</span></td>
+                  <td>
+                    <button onclick="deletePayment(${p.id})" class="delete-btn" style="font-size: 11px; padding: 4px 8px;">Excluir</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (error) {
+        console.error('Error loading payments:', error);
+        document.getElementById('paymentsList').innerHTML = '<p style="color: var(--danger);">Erro ao carregar pagamentos</p>';
+      }
+    }
+
+    async function deletePayment(id) {
+      if (!confirm('Tem certeza que deseja excluir este pagamento?')) return;
+
+      try {
+        await fetch('/api/payments/' + id, {
+          method: 'DELETE',
+          headers: { 'Authorization': authHeader }
+        });
+        loadPayments();
+        loadStudentsWithStatus();
+      } catch (error) {
+        alert('Erro ao excluir pagamento');
+      }
+    }
+
+    async function loadOverdueStudents() {
+      try {
+        const data = await fetchApi('/students/overdue');
+
+        const content = document.getElementById('overdueList');
+
+        if (data.students.length === 0) {
+          content.innerHTML = '<p style="color: var(--success); text-align: center; padding: 40px;">Nenhum aluno inadimplente!</p>';
+          return;
+        }
+
+        content.innerHTML = data.students.map(s => `
+          <div class="card" style="margin-bottom: 12px; border-left: 4px solid var(--danger);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <strong>${s.name}</strong>
+                <span class="badge badge-info" style="margin-left: 8px;">${s.unit}</span>
+                <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">${s.phone}</p>
+                <p style="color: var(--danger); font-size: 12px;">${s.daysOverdue} dias em atraso</p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button onclick="sendReminder(${s.id})" style="padding: 6px 12px; background: var(--warning); border: none; color: #000; border-radius: 4px; cursor: pointer; font-size: 12px;">Enviar Cobranca</button>
+                <button onclick="showPaymentModal(${s.id}, '${s.name}', ${s.planValue})" class="send-btn" style="font-size: 12px; padding: 6px 12px;">Registrar Pagamento</button>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      } catch (error) {
+        console.error('Error loading overdue students:', error);
+        document.getElementById('overdueList').innerHTML = '<p style="color: var(--danger);">Erro ao carregar</p>';
+      }
+    }
+
+    async function sendReminder(studentId) {
+      if (!confirm('Enviar mensagem de cobranca para este aluno?')) return;
+
+      try {
+        const response = await fetch('/api/billing/send-reminder/' + studentId, {
+          method: 'POST',
+          headers: { 'Authorization': authHeader }
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          alert('Cobranca enviada com sucesso!');
+        } else {
+          alert('Erro: ' + (result.error || 'Falha ao enviar'));
+        }
+      } catch (error) {
+        alert('Erro ao enviar cobranca');
+      }
+    }
+
+    async function sendBulkReminders() {
+      if (!confirm('Enviar cobranca para TODOS os alunos que vencem hoje?')) return;
+
+      try {
+        const response = await fetch('/api/billing/send-bulk-reminders', {
+          method: 'POST',
+          headers: { 'Authorization': authHeader }
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          alert(`Cobrancas enviadas!\nEnviadas: ${result.sent}\nFalhas: ${result.failed}`);
+        } else {
+          alert('Erro: ' + (result.error || 'Falha ao enviar'));
+        }
+      } catch (error) {
+        alert('Erro ao enviar cobrancas');
+      }
+    }
+
+    async function loadMonthlyReport() {
+      try {
+        const month = document.getElementById('reportMonth').value;
+        if (!month) {
+          alert('Selecione um mes');
+          return;
+        }
+
+        const report = await fetchApi('/payments/report/' + month);
+
+        const content = document.getElementById('reportResult');
+        content.innerHTML = `
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+            <div class="card" style="text-align: center; padding: 20px;">
+              <div style="font-size: 32px; font-weight: bold; color: var(--primary);">${report.totalStudents}</div>
+              <div style="color: var(--text-muted);">Total Alunos Ativos</div>
+            </div>
+            <div class="card" style="text-align: center; padding: 20px;">
+              <div style="font-size: 32px; font-weight: bold; color: var(--success);">${report.totalPaid}</div>
+              <div style="color: var(--text-muted);">Pagaram</div>
+            </div>
+            <div class="card" style="text-align: center; padding: 20px;">
+              <div style="font-size: 32px; font-weight: bold; color: var(--danger);">${report.totalPending}</div>
+              <div style="color: var(--text-muted);">Pendentes</div>
+            </div>
+            <div class="card" style="text-align: center; padding: 20px;">
+              <div style="font-size: 32px; font-weight: bold; color: var(--warning);">R$ ${(report.totalRevenue / 100).toFixed(2)}</div>
+              <div style="color: var(--text-muted);">Receita Total</div>
+            </div>
+          </div>
+
+          ${report.payments.length > 0 ? `
+            <h4 style="margin-bottom: 15px;">Pagamentos do Mes</h4>
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Aluno</th>
+                  <th>Valor</th>
+                  <th>Data</th>
+                  <th>Forma</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${report.payments.map(p => `
+                  <tr>
+                    <td>${p.studentName || 'N/A'}</td>
+                    <td>R$ ${(p.amount / 100).toFixed(2)}</td>
+                    <td>${formatDateBR(p.paymentDate)}</td>
+                    <td>${p.paymentMethod}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          ` : '<p style="color: var(--text-muted);">Nenhum pagamento registrado neste mes.</p>'}
+        `;
+      } catch (error) {
+        console.error('Error loading report:', error);
+        document.getElementById('reportResult').innerHTML = '<p style="color: var(--danger);">Erro ao gerar relatorio</p>';
+      }
+    }
+
+    function formatDateBR(dateStr) {
+      if (!dateStr) return '';
+      const [year, month, day] = dateStr.split('-');
+      return `${day}/${month}/${year}`;
+    }
+
+    // Update loadAllData to include billing
     async function loadAllData() {
       try {
         await Promise.all([
@@ -2783,7 +3463,9 @@
           loadSettings(),
           loadBookingStats(),
           loadQueues(),
-          loadReminders()
+          loadReminders(),
+          loadStudentsWithStatus(),
+          loadStudents()
         ]);
       } catch (error) {
         console.error('Error loading data:', error);
