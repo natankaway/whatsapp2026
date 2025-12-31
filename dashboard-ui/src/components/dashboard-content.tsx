@@ -131,7 +131,7 @@ export default function DashboardContent() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">WhatsApp</CardTitle>
-            {status?.whatsapp.connected ? (
+            {status?.whatsapp?.connected ? (
               <Wifi className="h-4 w-4 text-green-500" />
             ) : (
               <WifiOff className="h-4 w-4 text-red-500" />
@@ -139,10 +139,10 @@ export default function DashboardContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {status?.whatsapp.connected ? "Conectado" : "Desconectado"}
+              {status?.whatsapp?.connected ? "Conectado" : "Desconectado"}
             </div>
             <p className="text-xs text-muted-foreground">
-              {status?.whatsapp.user?.name || status?.whatsapp.state}
+              {status?.whatsapp?.user?.name || status?.whatsapp?.state || "-"}
             </p>
           </CardContent>
         </Card>
@@ -155,10 +155,10 @@ export default function DashboardContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {status?.whatsapp.uptimeFormatted || "-"}
+              {status?.whatsapp?.uptimeFormatted || "-"}
             </div>
             <p className="text-xs text-muted-foreground">
-              Sistema: {status?.system.uptimeFormatted}
+              Sistema: {status?.system?.uptimeFormatted || "-"}
             </p>
           </CardContent>
         </Card>
@@ -213,17 +213,17 @@ export default function DashboardContent() {
               <div className="flex items-center gap-3">
                 <div
                   className={`h-3 w-3 rounded-full ${
-                    status?.whatsapp.connected
+                    status?.whatsapp?.connected
                       ? "bg-green-500 animate-pulse"
                       : "bg-red-500"
                   }`}
                 />
                 <div>
                   <p className="font-medium">
-                    {status?.whatsapp.connected ? "Online" : "Offline"}
+                    {status?.whatsapp?.connected ? "Online" : "Offline"}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {status?.whatsapp.state}
+                    {status?.whatsapp?.state || "-"}
                   </p>
                 </div>
               </div>
@@ -284,18 +284,18 @@ export default function DashboardContent() {
                 </div>
                 <div className="text-right">
                   <p className="font-medium">
-                    {status?.system.memory.percentUsed.toFixed(1)}%
+                    {(status?.system?.memory?.percentUsed ?? 0).toFixed(1)}%
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {Math.round((status?.system.memory.heapUsed || 0) / 1024 / 1024)}MB /{" "}
-                    {Math.round((status?.system.memory.heapTotal || 0) / 1024 / 1024)}MB
+                    {Math.round((status?.system?.memory?.heapUsed || 0) / 1024 / 1024)}MB /{" "}
+                    {Math.round((status?.system?.memory?.heapTotal || 0) / 1024 / 1024)}MB
                   </p>
                 </div>
               </div>
               <div className="w-full bg-muted rounded-full h-2">
                 <div
                   className="bg-primary h-2 rounded-full transition-all"
-                  style={{ width: `${status?.system.memory.percentUsed || 0}%` }}
+                  style={{ width: `${status?.system?.memory?.percentUsed || 0}%` }}
                 />
               </div>
             </div>
@@ -303,11 +303,11 @@ export default function DashboardContent() {
             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
               <div>
                 <p className="text-sm text-muted-foreground">Plataforma</p>
-                <p className="font-medium">{status?.system.platform}</p>
+                <p className="font-medium">{status?.system?.platform || "-"}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Node.js</p>
-                <p className="font-medium">{status?.system.nodeVersion}</p>
+                <p className="font-medium">{status?.system?.nodeVersion || "-"}</p>
               </div>
             </div>
           </CardContent>
