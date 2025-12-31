@@ -1,25 +1,19 @@
-"use client";
+import nextDynamic from "next/dynamic";
 
-import { DashboardLayout } from "@/components/dashboard-layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3 } from "lucide-react";
+export const dynamic = "force-dynamic";
+
+const EnquetesContent = nextDynamic(
+  () => import("@/components/enquetes-content"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    ),
+  }
+);
 
 export default function EnquetesPage() {
-  return (
-    <DashboardLayout title="Enquetes">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
-            Enquetes Automáticas
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">
-            Página de enquetes em desenvolvimento...
-          </p>
-        </CardContent>
-      </Card>
-    </DashboardLayout>
-  );
+  return <EnquetesContent />;
 }

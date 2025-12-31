@@ -1,25 +1,19 @@
-"use client";
+import nextDynamic from "next/dynamic";
 
-import { DashboardLayout } from "@/components/dashboard-layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreditCard } from "lucide-react";
+export const dynamic = "force-dynamic";
+
+const MensalidadesContent = nextDynamic(
+  () => import("@/components/mensalidades-content"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    ),
+  }
+);
 
 export default function MensalidadesPage() {
-  return (
-    <DashboardLayout title="Mensalidades">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Controle de Mensalidades
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">
-            Página de mensalidades em desenvolvimento...
-          </p>
-        </CardContent>
-      </Card>
-    </DashboardLayout>
-  );
+  return <MensalidadesContent />;
 }

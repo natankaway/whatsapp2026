@@ -37,11 +37,19 @@ const menuItems = [
 export function DashboardLayout({ children, title }: DashboardLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState<BotStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Handle hydration
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+
     if (!isAuthenticated()) {
       router.push("/login");
       return;
@@ -61,14 +69,14 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
     fetchStatus();
     const interval = setInterval(fetchStatus, 10000);
     return () => clearInterval(interval);
-  }, [router]);
+  }, [router, mounted]);
 
   const handleLogout = () => {
     logout();
     router.push("/login");
   };
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
