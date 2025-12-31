@@ -18,6 +18,8 @@ export interface BookingRecord {
   name: string;
   phone?: string;
   companion?: string;
+  status?: 'confirmed' | 'pending' | 'cancelled';
+  source?: 'whatsapp' | 'dashboard' | 'telegram';
   createdAt: string;
   updatedAt: string;
 }
