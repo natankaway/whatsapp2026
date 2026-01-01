@@ -11,6 +11,7 @@ import {
   LogOut,
   Wifi,
   WifiOff,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -60,6 +61,11 @@ const menuItems = [
     title: "Check-ins",
     url: "/checkins",
     icon: CheckSquare,
+  },
+  {
+    title: "Financeiro",
+    url: "/financeiro",
+    icon: Wallet,
   },
   {
     title: "Configurações",

@@ -686,3 +686,169 @@ export const unpinSentPoll = (id: number) =>
 
 export const deleteSentPoll = (id: number) =>
   fetchApi<{ success: boolean }>(`/sent-polls/${id}`, { method: 'DELETE' });
+
+// ============= Cash Transaction Types =============
+
+export interface CashTransaction {
+  id: number;
+  type: 'income' | 'expense';
+  category: string;
+  description: string;
+  amount: number; // em centavos
+  paymentMethod: 'pix' | 'dinheiro' | 'cartao' | 'transferencia' | 'outro';
+  date: string;
+  referenceId?: number;
+  referenceType?: string;
+  installmentId?: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CashSummary {
+  totalIncome: number;
+  totalExpense: number;
+  balance: number;
+  byCategory: Record<string, { income: number; expense: number }>;
+  byPaymentMethod: Record<string, number>;
+}
+
+export interface CashMonthlyReport {
+  summary: CashSummary;
+  transactions: CashTransaction[];
+  dailyTotals: Array<{ date: string; income: number; expense: number }>;
+}
+
+export interface Installment {
+  id: number;
+  description: string;
+  totalAmount: number; // em centavos
+  installmentCount: number;
+  paidCount: number;
+  category: string;
+  startDate: string;
+  status: 'active' | 'completed' | 'cancelled';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  transactions?: CashTransaction[];
+}
+
+// ============= Cash Transaction API Functions =============
+
+const extractCashTransactions = (response: { transactions: CashTransaction[] } | CashTransaction[]): CashTransaction[] => {
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'transactions' in response) {
+    return response.transactions || [];
+  }
+  return [];
+};
+
+export const getCashTransactions = async (params?: {
+  type?: string;
+  category?: string;
+  startDate?: string;
+  endDate?: string;
+  installmentId?: number;
+}): Promise<{ transactions: CashTransaction[]; totalIncome: number; totalExpense: number; balance: number }> => {
+  const query = new URLSearchParams();
+  if (params?.type) query.set('type', params.type);
+  if (params?.category) query.set('category', params.category);
+  if (params?.startDate) query.set('startDate', params.startDate);
+  if (params?.endDate) query.set('endDate', params.endDate);
+  if (params?.installmentId) query.set('installmentId', String(params.installmentId));
+  return fetchApi(`/cash-transactions?${query}`);
+};
+
+export const getCashTransactionById = (id: number) =>
+  fetchApi<CashTransaction>(`/cash-transactions/${id}`);
+
+export const getCashSummary = (params?: { startDate?: string; endDate?: string }) => {
+  const query = new URLSearchParams();
+  if (params?.startDate) query.set('startDate', params.startDate);
+  if (params?.endDate) query.set('endDate', params.endDate);
+  return fetchApi<CashSummary>(`/cash-transactions/summary?${query}`);
+};
+
+export const getCashMonthlyReport = (month: string) =>
+  fetchApi<CashMonthlyReport>(`/cash-transactions/report/${month}`);
+
+export const createCashTransaction = (data: Omit<CashTransaction, 'id' | 'createdAt' | 'updatedAt'>) =>
+  fetchApi<CashTransaction>('/cash-transactions', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateCashTransaction = (id: number, data: Partial<CashTransaction>) =>
+  fetchApi<CashTransaction>(`/cash-transactions/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+export const deleteCashTransaction = (id: number) =>
+  fetchApi<{ success: boolean }>(`/cash-transactions/${id}`, { method: 'DELETE' });
+
+// ============= Installment API Functions =============
+
+const extractInstallments = (response: { installments: Installment[] } | Installment[]): Installment[] => {
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'installments' in response) {
+    return response.installments || [];
+  }
+  return [];
+};
+
+export const getInstallments = async (params?: { status?: string; category?: string }): Promise<{
+  installments: Installment[];
+  activeCount: number;
+  completedCount: number;
+}> => {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  if (params?.category) query.set('category', params.category);
+  return fetchApi(`/installments?${query}`);
+};
+
+export const getInstallmentById = (id: number) =>
+  fetchApi<Installment & { transactions: CashTransaction[] }>(`/installments/${id}`);
+
+export const createInstallment = (data: Omit<Installment, 'id' | 'paidCount' | 'createdAt' | 'updatedAt'>) =>
+  fetchApi<Installment>('/installments', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateInstallment = (id: number, data: Partial<Installment>) =>
+  fetchApi<Installment>(`/installments/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+export const payInstallment = (id: number, paymentMethod: string, notes?: string) =>
+  fetchApi<{ success: boolean; transaction: CashTransaction; installment: Installment }>(`/installments/${id}/pay`, {
+    method: 'POST',
+    body: JSON.stringify({ paymentMethod, notes }),
+  });
+
+export const deleteInstallment = (id: number) =>
+  fetchApi<{ success: boolean }>(`/installments/${id}`, { method: 'DELETE' });
+
+// ============= Cash Categories =============
+
+export const CASH_CATEGORIES = {
+  income: [
+    { value: 'mensalidade', label: 'Mensalidade' },
+    { value: 'aula_avulsa', label: 'Aula Avulsa' },
+    { value: 'inscricao', label: 'Inscrição' },
+    { value: 'evento', label: 'Evento' },
+    { value: 'equipamento', label: 'Venda de Equipamento' },
+    { value: 'patrocinio', label: 'Patrocínio' },
+    { value: 'outro_entrada', label: 'Outra Entrada' },
+  ],
+  expense: [
+    { value: 'aluguel', label: 'Aluguel' },
+    { value: 'equipamento', label: 'Equipamento' },
+    { value: 'manutencao', label: 'Manutenção' },
+    { value: 'salario', label: 'Salário' },
+    { value: 'material', label: 'Material' },
+    { value: 'impostos', label: 'Impostos' },
+    { value: 'marketing', label: 'Marketing' },
+    { value: 'outro_saida', label: 'Outra Saída' },
+  ],
+};
+
+export const PAYMENT_METHODS = [
+  { value: 'pix', label: 'PIX' },
+  { value: 'dinheiro', label: 'Dinheiro' },
+  { value: 'cartao', label: 'Cartão' },
+  { value: 'transferencia', label: 'Transferência' },
+  { value: 'outro', label: 'Outro' },
+];

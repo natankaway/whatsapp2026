@@ -2328,6 +2328,378 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
     }
   });
 
+  // ===========================================================================
+  // CASH TRANSACTIONS (Transações de Caixa)
+  // ===========================================================================
+
+  router.get('/cash-transactions', (req: Request, res: Response) => {
+    try {
+      const { type, category, startDate, endDate, installmentId } = req.query;
+
+      const transactions = sqliteService.getCashTransactions({
+        type: type as string,
+        category: category as string,
+        startDate: startDate as string,
+        endDate: endDate as string,
+        installmentId: installmentId ? parseInt(installmentId as string, 10) : undefined,
+      });
+
+      const totalIncome = transactions
+        .filter(t => t.type === 'income')
+        .reduce((sum, t) => sum + t.amount, 0);
+      const totalExpense = transactions
+        .filter(t => t.type === 'expense')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      res.json({
+        total: transactions.length,
+        totalIncome,
+        totalExpense,
+        balance: totalIncome - totalExpense,
+        transactions,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar transações de caixa', error);
+      res.status(500).json({ error: 'Erro ao listar transações' });
+    }
+  });
+
+  router.get('/cash-transactions/summary', (req: Request, res: Response) => {
+    try {
+      const { startDate, endDate } = req.query;
+
+      const summary = sqliteService.getCashSummary({
+        startDate: startDate as string,
+        endDate: endDate as string,
+      });
+
+      res.json(summary);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao obter resumo do caixa', error);
+      res.status(500).json({ error: 'Erro ao obter resumo' });
+    }
+  });
+
+  router.get('/cash-transactions/report/:month', (req: Request, res: Response) => {
+    try {
+      const month = req.params.month; // formato YYYY-MM
+
+      if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+        res.status(400).json({ error: 'Formato de mês inválido. Use YYYY-MM' });
+        return;
+      }
+
+      const report = sqliteService.getCashMonthlyReport(month);
+
+      res.json(report);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao gerar relatório do caixa', error);
+      res.status(500).json({ error: 'Erro ao gerar relatório' });
+    }
+  });
+
+  router.get('/cash-transactions/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const transaction = sqliteService.getCashTransactionById(id);
+      if (!transaction) {
+        res.status(404).json({ error: 'Transação não encontrada' });
+        return;
+      }
+
+      res.json(transaction);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar transação de caixa', error);
+      res.status(500).json({ error: 'Erro ao buscar transação' });
+    }
+  });
+
+  router.post('/cash-transactions', (req: Request, res: Response) => {
+    try {
+      const { type, category, description, amount, paymentMethod, date, referenceId, referenceType, installmentId, notes } = req.body;
+
+      if (!type || !category || !description || amount === undefined || !paymentMethod || !date) {
+        res.status(400).json({ error: 'Campos obrigatórios: type, category, description, amount, paymentMethod, date' });
+        return;
+      }
+
+      if (!['income', 'expense'].includes(type)) {
+        res.status(400).json({ error: 'type deve ser: income (entrada) ou expense (saída)' });
+        return;
+      }
+
+      if (!['pix', 'dinheiro', 'cartao', 'transferencia', 'outro'].includes(paymentMethod)) {
+        res.status(400).json({ error: 'paymentMethod deve ser: pix, dinheiro, cartao, transferencia ou outro' });
+        return;
+      }
+
+      const transaction = sqliteService.createCashTransaction({
+        type,
+        category,
+        description,
+        amount: Math.round(amount * 100), // Converter para centavos
+        paymentMethod,
+        date,
+        referenceId,
+        referenceType,
+        installmentId,
+        notes,
+      });
+
+      if (transaction) {
+        logger.info(`[Dashboard] Transação de caixa criada: ${type} - ${category} - R$ ${(amount).toFixed(2)}`);
+        res.status(201).json(transaction);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar transação' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar transação de caixa', error);
+      res.status(500).json({ error: 'Erro ao criar transação' });
+    }
+  });
+
+  router.put('/cash-transactions/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { type, category, description, amount, paymentMethod, date, notes } = req.body;
+
+      const updateData: Record<string, unknown> = {};
+      if (type !== undefined) updateData.type = type;
+      if (category !== undefined) updateData.category = category;
+      if (description !== undefined) updateData.description = description;
+      if (amount !== undefined) updateData.amount = Math.round(amount * 100);
+      if (paymentMethod !== undefined) updateData.paymentMethod = paymentMethod;
+      if (date !== undefined) updateData.date = date;
+      if (notes !== undefined) updateData.notes = notes;
+
+      const updated = sqliteService.updateCashTransaction(id, updateData);
+
+      if (updated) {
+        logger.info(`[Dashboard] Transação de caixa #${id} atualizada`);
+        const transaction = sqliteService.getCashTransactionById(id);
+        res.json(transaction);
+      } else {
+        res.status(404).json({ error: 'Transação não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar transação de caixa', error);
+      res.status(500).json({ error: 'Erro ao atualizar transação' });
+    }
+  });
+
+  router.delete('/cash-transactions/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteCashTransaction(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Transação de caixa #${id} removida`);
+        res.json({ success: true, message: 'Transação removida' });
+      } else {
+        res.status(404).json({ error: 'Transação não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover transação de caixa', error);
+      res.status(500).json({ error: 'Erro ao remover transação' });
+    }
+  });
+
+  // ===========================================================================
+  // INSTALLMENTS (Parcelamentos)
+  // ===========================================================================
+
+  router.get('/installments', (req: Request, res: Response) => {
+    try {
+      const { status, category } = req.query;
+
+      const installments = sqliteService.getInstallments({
+        status: status as string,
+        category: category as string,
+      });
+
+      res.json({
+        total: installments.length,
+        activeCount: installments.filter(i => i.status === 'active').length,
+        completedCount: installments.filter(i => i.status === 'completed').length,
+        installments,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar parcelamentos', error);
+      res.status(500).json({ error: 'Erro ao listar parcelamentos' });
+    }
+  });
+
+  router.get('/installments/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const installment = sqliteService.getInstallmentById(id);
+      if (!installment) {
+        res.status(404).json({ error: 'Parcelamento não encontrado' });
+        return;
+      }
+
+      const transactions = sqliteService.getInstallmentTransactions(id);
+
+      res.json({ ...installment, transactions });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar parcelamento', error);
+      res.status(500).json({ error: 'Erro ao buscar parcelamento' });
+    }
+  });
+
+  router.post('/installments', (req: Request, res: Response) => {
+    try {
+      const { description, totalAmount, installmentCount, category, startDate, notes } = req.body;
+
+      if (!description || totalAmount === undefined || !installmentCount || !category || !startDate) {
+        res.status(400).json({ error: 'Campos obrigatórios: description, totalAmount, installmentCount, category, startDate' });
+        return;
+      }
+
+      if (installmentCount < 2 || installmentCount > 48) {
+        res.status(400).json({ error: 'installmentCount deve ser entre 2 e 48' });
+        return;
+      }
+
+      const installment = sqliteService.createInstallment({
+        description,
+        totalAmount: Math.round(totalAmount * 100), // Converter para centavos
+        installmentCount,
+        category,
+        startDate,
+        status: 'active',
+        notes,
+      });
+
+      if (installment) {
+        logger.info(`[Dashboard] Parcelamento criado: ${description} - ${installmentCount}x R$ ${(totalAmount / installmentCount).toFixed(2)}`);
+        res.status(201).json(installment);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar parcelamento' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar parcelamento', error);
+      res.status(500).json({ error: 'Erro ao criar parcelamento' });
+    }
+  });
+
+  router.put('/installments/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { description, totalAmount, installmentCount, category, startDate, status, notes } = req.body;
+
+      const updateData: Record<string, unknown> = {};
+      if (description !== undefined) updateData.description = description;
+      if (totalAmount !== undefined) updateData.totalAmount = Math.round(totalAmount * 100);
+      if (installmentCount !== undefined) updateData.installmentCount = installmentCount;
+      if (category !== undefined) updateData.category = category;
+      if (startDate !== undefined) updateData.startDate = startDate;
+      if (status !== undefined) updateData.status = status;
+      if (notes !== undefined) updateData.notes = notes;
+
+      const updated = sqliteService.updateInstallment(id, updateData);
+
+      if (updated) {
+        logger.info(`[Dashboard] Parcelamento #${id} atualizado`);
+        const installment = sqliteService.getInstallmentById(id);
+        res.json(installment);
+      } else {
+        res.status(404).json({ error: 'Parcelamento não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar parcelamento', error);
+      res.status(500).json({ error: 'Erro ao atualizar parcelamento' });
+    }
+  });
+
+  // Registrar pagamento de parcela
+  router.post('/installments/:id/pay', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { paymentMethod, notes } = req.body;
+
+      if (!paymentMethod) {
+        res.status(400).json({ error: 'Campo obrigatório: paymentMethod' });
+        return;
+      }
+
+      if (!['pix', 'dinheiro', 'cartao', 'transferencia', 'outro'].includes(paymentMethod)) {
+        res.status(400).json({ error: 'paymentMethod deve ser: pix, dinheiro, cartao, transferencia ou outro' });
+        return;
+      }
+
+      const transaction = sqliteService.payInstallment(id, paymentMethod, notes);
+
+      if (transaction) {
+        const installment = sqliteService.getInstallmentById(id);
+        logger.info(`[Dashboard] Parcela paga para parcelamento #${id}`);
+        res.json({
+          success: true,
+          message: 'Parcela paga com sucesso',
+          transaction,
+          installment,
+        });
+      } else {
+        res.status(400).json({ error: 'Erro ao pagar parcela. Verifique se o parcelamento existe e não está completo.' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao pagar parcela', error);
+      res.status(500).json({ error: 'Erro ao pagar parcela' });
+    }
+  });
+
+  router.delete('/installments/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteInstallment(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Parcelamento #${id} cancelado`);
+        res.json({ success: true, message: 'Parcelamento cancelado' });
+      } else {
+        res.status(404).json({ error: 'Parcelamento não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao cancelar parcelamento', error);
+      res.status(500).json({ error: 'Erro ao cancelar parcelamento' });
+    }
+  });
+
   return router;
 }
 

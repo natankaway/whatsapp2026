@@ -278,6 +278,78 @@ export interface CheckinStudentWithBalance extends CheckinStudentRecord {
   lastTransaction?: CheckinTransactionRecord;
 }
 
+// =============================================================================
+// INTERFACES PARA CONTROLE FINANCEIRO (CAIXA)
+// =============================================================================
+
+export interface CashTransactionRecord {
+  id?: number;
+  type: 'income' | 'expense'; // entrada ou saída
+  category: string; // ex: mensalidade, aula_avulsa, equipamento, manutenção, etc
+  description: string;
+  amount: number; // valor em centavos
+  paymentMethod: 'pix' | 'dinheiro' | 'cartao' | 'transferencia' | 'outro';
+  date: string; // YYYY-MM-DD
+  referenceId?: number; // ID de referência (ex: studentId, paymentId)
+  referenceType?: string; // Tipo de referência (ex: 'student', 'payment')
+  installmentId?: number; // ID do parcelamento (se for parcela)
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface CashTransactionRecordRaw {
+  id: number;
+  type: string;
+  category: string;
+  description: string;
+  amount: number;
+  payment_method: string;
+  date: string;
+  reference_id: number | null;
+  reference_type: string | null;
+  installment_id: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InstallmentRecord {
+  id?: number;
+  description: string;
+  totalAmount: number; // valor total em centavos
+  installmentCount: number; // número de parcelas
+  paidCount: number; // número de parcelas pagas
+  category: string;
+  startDate: string; // data da primeira parcela
+  status: 'active' | 'completed' | 'cancelled';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface InstallmentRecordRaw {
+  id: number;
+  description: string;
+  total_amount: number;
+  installment_count: number;
+  paid_count: number;
+  category: string;
+  start_date: string;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CashSummary {
+  totalIncome: number;
+  totalExpense: number;
+  balance: number;
+  byCategory: Record<string, { income: number; expense: number }>;
+  byPaymentMethod: Record<string, number>;
+}
+
 export interface UnitRecord {
   id?: number;
   slug: string;
@@ -805,6 +877,55 @@ class SQLiteService {
           db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_polls_group ON sent_polls(group_id)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_polls_message ON sent_polls(message_id)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_polls_sent_at ON sent_polls(sent_at)`);
+        },
+      },
+      {
+        name: '012_create_cash_tables',
+        up: (db) => {
+          // Tabela de parcelamentos
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS installments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              description TEXT NOT NULL,
+              total_amount INTEGER NOT NULL,
+              installment_count INTEGER NOT NULL,
+              paid_count INTEGER NOT NULL DEFAULT 0,
+              category TEXT NOT NULL,
+              start_date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'active',
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_installments_status ON installments(status)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_installments_category ON installments(category)`);
+
+          // Tabela de transações de caixa
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS cash_transactions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
+              category TEXT NOT NULL,
+              description TEXT NOT NULL,
+              amount INTEGER NOT NULL,
+              payment_method TEXT NOT NULL,
+              date TEXT NOT NULL,
+              reference_id INTEGER,
+              reference_type TEXT,
+              installment_id INTEGER,
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+              FOREIGN KEY (installment_id) REFERENCES installments(id) ON DELETE SET NULL
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_type ON cash_transactions(type)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_category ON cash_transactions(category)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_date ON cash_transactions(date)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_installment ON cash_transactions(installment_id)`);
         },
       },
     ];
@@ -2863,6 +2984,565 @@ class SQLiteService {
 
   isReady(): boolean {
     return this.db !== null;
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE CAIXA (CASH TRANSACTIONS)
+  // ===========================================================================
+
+  /**
+   * Lista transações de caixa com filtros opcionais
+   */
+  getCashTransactions(filters?: {
+    type?: string;
+    category?: string;
+    startDate?: string;
+    endDate?: string;
+    installmentId?: number;
+  }): CashTransactionRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT id, type, category, description, amount, payment_method, date,
+             reference_id, reference_type, installment_id, notes,
+             created_at, updated_at
+      FROM cash_transactions
+      WHERE 1=1
+    `;
+    const params: unknown[] = [];
+
+    if (filters?.type) {
+      query += ' AND type = ?';
+      params.push(filters.type);
+    }
+
+    if (filters?.category) {
+      query += ' AND category = ?';
+      params.push(filters.category);
+    }
+
+    if (filters?.startDate) {
+      query += ' AND date >= ?';
+      params.push(filters.startDate);
+    }
+
+    if (filters?.endDate) {
+      query += ' AND date <= ?';
+      params.push(filters.endDate);
+    }
+
+    if (filters?.installmentId) {
+      query += ' AND installment_id = ?';
+      params.push(filters.installmentId);
+    }
+
+    query += ' ORDER BY date DESC, created_at DESC';
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as CashTransactionRecordRaw[];
+
+    return rows.map(row => ({
+      id: row.id,
+      type: row.type as 'income' | 'expense',
+      category: row.category,
+      description: row.description,
+      amount: row.amount,
+      paymentMethod: row.payment_method as 'pix' | 'dinheiro' | 'cartao' | 'transferencia' | 'outro',
+      date: row.date,
+      referenceId: row.reference_id ?? undefined,
+      referenceType: row.reference_type ?? undefined,
+      installmentId: row.installment_id ?? undefined,
+      notes: row.notes ?? undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  /**
+   * Busca transação por ID
+   */
+  getCashTransactionById(id: number): CashTransactionRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, type, category, description, amount, payment_method, date,
+             reference_id, reference_type, installment_id, notes,
+             created_at, updated_at
+      FROM cash_transactions
+      WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as CashTransactionRecordRaw | undefined;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      type: row.type as 'income' | 'expense',
+      category: row.category,
+      description: row.description,
+      amount: row.amount,
+      paymentMethod: row.payment_method as 'pix' | 'dinheiro' | 'cartao' | 'transferencia' | 'outro',
+      date: row.date,
+      referenceId: row.reference_id ?? undefined,
+      referenceType: row.reference_type ?? undefined,
+      installmentId: row.installment_id ?? undefined,
+      notes: row.notes ?? undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  /**
+   * Cria nova transação de caixa
+   */
+  createCashTransaction(data: Omit<CashTransactionRecord, 'id' | 'createdAt' | 'updatedAt'>): CashTransactionRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO cash_transactions (type, category, description, amount, payment_method, date,
+                                       reference_id, reference_type, installment_id, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        data.type,
+        data.category,
+        data.description,
+        data.amount,
+        data.paymentMethod,
+        data.date,
+        data.referenceId ?? null,
+        data.referenceType ?? null,
+        data.installmentId ?? null,
+        data.notes ?? null,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...data,
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar transação de caixa', error);
+      return null;
+    }
+  }
+
+  /**
+   * Atualiza transação de caixa
+   */
+  updateCashTransaction(id: number, updates: Partial<CashTransactionRecord>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const fields: string[] = [];
+      const values: unknown[] = [];
+
+      if (updates.type !== undefined) {
+        fields.push('type = ?');
+        values.push(updates.type);
+      }
+      if (updates.category !== undefined) {
+        fields.push('category = ?');
+        values.push(updates.category);
+      }
+      if (updates.description !== undefined) {
+        fields.push('description = ?');
+        values.push(updates.description);
+      }
+      if (updates.amount !== undefined) {
+        fields.push('amount = ?');
+        values.push(updates.amount);
+      }
+      if (updates.paymentMethod !== undefined) {
+        fields.push('payment_method = ?');
+        values.push(updates.paymentMethod);
+      }
+      if (updates.date !== undefined) {
+        fields.push('date = ?');
+        values.push(updates.date);
+      }
+      if (updates.notes !== undefined) {
+        fields.push('notes = ?');
+        values.push(updates.notes);
+      }
+
+      if (fields.length === 0) return false;
+
+      fields.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`
+        UPDATE cash_transactions SET ${fields.join(', ')} WHERE id = ?
+      `);
+      const result = stmt.run(...values);
+      return result.changes > 0;
+    } catch (error) {
+      logger.error('[SQLite] Erro ao atualizar transação de caixa', error);
+      return false;
+    }
+  }
+
+  /**
+   * Remove transação de caixa
+   */
+  deleteCashTransaction(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM cash_transactions WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  /**
+   * Obtém resumo do caixa
+   */
+  getCashSummary(filters?: { startDate?: string; endDate?: string }): CashSummary {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let whereClause = '';
+    const params: unknown[] = [];
+
+    if (filters?.startDate) {
+      whereClause += ' AND date >= ?';
+      params.push(filters.startDate);
+    }
+
+    if (filters?.endDate) {
+      whereClause += ' AND date <= ?';
+      params.push(filters.endDate);
+    }
+
+    // Total de entradas e saídas
+    const totalsStmt = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as total_income,
+        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expense
+      FROM cash_transactions
+      WHERE 1=1 ${whereClause}
+    `);
+    const totals = totalsStmt.get(...params) as { total_income: number; total_expense: number };
+
+    // Por categoria
+    const byCategoryStmt = this.db.prepare(`
+      SELECT category, type,
+             SUM(amount) as total
+      FROM cash_transactions
+      WHERE 1=1 ${whereClause}
+      GROUP BY category, type
+    `);
+    const categoryRows = byCategoryStmt.all(...params) as Array<{ category: string; type: string; total: number }>;
+
+    const byCategory: Record<string, { income: number; expense: number }> = {};
+    for (const row of categoryRows) {
+      if (!byCategory[row.category]) {
+        byCategory[row.category] = { income: 0, expense: 0 };
+      }
+      if (row.type === 'income') {
+        byCategory[row.category]!.income = row.total;
+      } else {
+        byCategory[row.category]!.expense = row.total;
+      }
+    }
+
+    // Por método de pagamento
+    const byMethodStmt = this.db.prepare(`
+      SELECT payment_method,
+             SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) as total
+      FROM cash_transactions
+      WHERE 1=1 ${whereClause}
+      GROUP BY payment_method
+    `);
+    const methodRows = byMethodStmt.all(...params) as Array<{ payment_method: string; total: number }>;
+
+    const byPaymentMethod: Record<string, number> = {};
+    for (const row of methodRows) {
+      byPaymentMethod[row.payment_method] = row.total;
+    }
+
+    return {
+      totalIncome: totals.total_income,
+      totalExpense: totals.total_expense,
+      balance: totals.total_income - totals.total_expense,
+      byCategory,
+      byPaymentMethod,
+    };
+  }
+
+  /**
+   * Obtém relatório mensal do caixa
+   */
+  getCashMonthlyReport(month: string): {
+    summary: CashSummary;
+    transactions: CashTransactionRecord[];
+    dailyTotals: Array<{ date: string; income: number; expense: number }>;
+  } {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const startDate = `${month}-01`;
+    const [year, monthNum] = month.split('-').map(Number);
+    const lastDay = new Date(year!, monthNum!, 0).getDate();
+    const endDate = `${month}-${String(lastDay).padStart(2, '0')}`;
+
+    const summary = this.getCashSummary({ startDate, endDate });
+    const transactions = this.getCashTransactions({ startDate, endDate });
+
+    // Totais diários
+    const dailyStmt = this.db.prepare(`
+      SELECT date,
+             SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+             SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense
+      FROM cash_transactions
+      WHERE date >= ? AND date <= ?
+      GROUP BY date
+      ORDER BY date
+    `);
+    const dailyRows = dailyStmt.all(startDate, endDate) as Array<{ date: string; income: number; expense: number }>;
+
+    return {
+      summary,
+      transactions,
+      dailyTotals: dailyRows,
+    };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE PARCELAMENTOS (INSTALLMENTS)
+  // ===========================================================================
+
+  /**
+   * Lista parcelamentos com filtros opcionais
+   */
+  getInstallments(filters?: { status?: string; category?: string }): InstallmentRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT id, description, total_amount, installment_count, paid_count,
+             category, start_date, status, notes, created_at, updated_at
+      FROM installments
+      WHERE 1=1
+    `;
+    const params: unknown[] = [];
+
+    if (filters?.status) {
+      query += ' AND status = ?';
+      params.push(filters.status);
+    }
+
+    if (filters?.category) {
+      query += ' AND category = ?';
+      params.push(filters.category);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as InstallmentRecordRaw[];
+
+    return rows.map(row => ({
+      id: row.id,
+      description: row.description,
+      totalAmount: row.total_amount,
+      installmentCount: row.installment_count,
+      paidCount: row.paid_count,
+      category: row.category,
+      startDate: row.start_date,
+      status: row.status as 'active' | 'completed' | 'cancelled',
+      notes: row.notes ?? undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  /**
+   * Busca parcelamento por ID
+   */
+  getInstallmentById(id: number): InstallmentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, description, total_amount, installment_count, paid_count,
+             category, start_date, status, notes, created_at, updated_at
+      FROM installments
+      WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as InstallmentRecordRaw | undefined;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      description: row.description,
+      totalAmount: row.total_amount,
+      installmentCount: row.installment_count,
+      paidCount: row.paid_count,
+      category: row.category,
+      startDate: row.start_date,
+      status: row.status as 'active' | 'completed' | 'cancelled',
+      notes: row.notes ?? undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  /**
+   * Cria novo parcelamento
+   */
+  createInstallment(data: Omit<InstallmentRecord, 'id' | 'paidCount' | 'createdAt' | 'updatedAt'>): InstallmentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO installments (description, total_amount, installment_count, paid_count,
+                                  category, start_date, status, notes, created_at, updated_at)
+        VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        data.description,
+        data.totalAmount,
+        data.installmentCount,
+        data.category,
+        data.startDate,
+        data.status || 'active',
+        data.notes ?? null,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...data,
+        paidCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar parcelamento', error);
+      return null;
+    }
+  }
+
+  /**
+   * Atualiza parcelamento
+   */
+  updateInstallment(id: number, updates: Partial<InstallmentRecord>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const fields: string[] = [];
+      const values: unknown[] = [];
+
+      if (updates.description !== undefined) {
+        fields.push('description = ?');
+        values.push(updates.description);
+      }
+      if (updates.totalAmount !== undefined) {
+        fields.push('total_amount = ?');
+        values.push(updates.totalAmount);
+      }
+      if (updates.installmentCount !== undefined) {
+        fields.push('installment_count = ?');
+        values.push(updates.installmentCount);
+      }
+      if (updates.paidCount !== undefined) {
+        fields.push('paid_count = ?');
+        values.push(updates.paidCount);
+      }
+      if (updates.category !== undefined) {
+        fields.push('category = ?');
+        values.push(updates.category);
+      }
+      if (updates.startDate !== undefined) {
+        fields.push('start_date = ?');
+        values.push(updates.startDate);
+      }
+      if (updates.status !== undefined) {
+        fields.push('status = ?');
+        values.push(updates.status);
+      }
+      if (updates.notes !== undefined) {
+        fields.push('notes = ?');
+        values.push(updates.notes);
+      }
+
+      if (fields.length === 0) return false;
+
+      fields.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`
+        UPDATE installments SET ${fields.join(', ')} WHERE id = ?
+      `);
+      const result = stmt.run(...values);
+      return result.changes > 0;
+    } catch (error) {
+      logger.error('[SQLite] Erro ao atualizar parcelamento', error);
+      return false;
+    }
+  }
+
+  /**
+   * Registra pagamento de parcela
+   */
+  payInstallment(installmentId: number, paymentMethod: string, notes?: string): CashTransactionRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const installment = this.getInstallmentById(installmentId);
+    if (!installment) return null;
+
+    if (installment.paidCount >= installment.installmentCount) {
+      logger.warn('[SQLite] Parcelamento já completamente pago');
+      return null;
+    }
+
+    const installmentValue = Math.round(installment.totalAmount / installment.installmentCount);
+    const currentNumber = installment.paidCount + 1;
+
+    // Criar transação de entrada
+    const transaction = this.createCashTransaction({
+      type: 'income',
+      category: installment.category,
+      description: `${installment.description} - Parcela ${currentNumber}/${installment.installmentCount}`,
+      amount: installmentValue,
+      paymentMethod: paymentMethod as 'pix' | 'dinheiro' | 'cartao' | 'transferencia' | 'outro',
+      date: new Date().toISOString().split('T')[0]!,
+      installmentId: installmentId,
+      notes,
+    });
+
+    if (transaction) {
+      // Atualizar contador de parcelas pagas
+      const newPaidCount = installment.paidCount + 1;
+      const newStatus = newPaidCount >= installment.installmentCount ? 'completed' : 'active';
+      this.updateInstallment(installmentId, { paidCount: newPaidCount, status: newStatus });
+    }
+
+    return transaction;
+  }
+
+  /**
+   * Remove parcelamento (marca como cancelado)
+   */
+  deleteInstallment(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    return this.updateInstallment(id, { status: 'cancelled' });
+  }
+
+  /**
+   * Obtém transações de um parcelamento
+   */
+  getInstallmentTransactions(installmentId: number): CashTransactionRecord[] {
+    return this.getCashTransactions({ installmentId });
   }
 }
 
