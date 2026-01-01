@@ -152,13 +152,15 @@ class PollHandler {
    * Cria enquete com sistema robusto de retry e verificação de conexão
    * @param scheduleId - ID do agendamento (opcional, para rastreamento)
    * @param templateId - ID do template (opcional, para rastreamento)
+   * @param autoPin - Se true, fixa a enquete automaticamente por 24 horas
    */
   async createPoll(
     groupId: string,
     title: string,
     options: string[],
     scheduleId?: number,
-    templateId?: number
+    templateId?: number,
+    autoPin: boolean = false
   ): Promise<PollSendResult> {
     // Evitar execuções simultâneas
     if (this.isCreatingPoll) {
@@ -204,6 +206,8 @@ class PollHandler {
 
             // PASSO 4: Salvar enquete enviada no banco de dados
             if (result.messageId && result.messageKey) {
+              let sentPollId: number | undefined;
+
               try {
                 const sentPoll = sqliteService.createSentPoll({
                   scheduleId,
@@ -217,11 +221,46 @@ class PollHandler {
                 });
 
                 if (sentPoll) {
+                  sentPollId = sentPoll.id;
                   logger.info(`[POLL] Enquete salva no banco com ID: ${sentPoll.id}`);
                 }
               } catch (dbError) {
                 logger.error('[POLL] Erro ao salvar enquete no banco:', dbError);
                 // Não falhar a operação por erro de banco
+              }
+
+              // PASSO 5: Fixar automaticamente se autoPin estiver ativo
+              if (autoPin && result.messageKey) {
+                try {
+                  // Aguardar um pouco antes de fixar (evita problemas de timing)
+                  await this.delay(2000);
+
+                  const pinSuccess = await whatsappService.pinMessage(
+                    groupId,
+                    {
+                      id: result.messageKey.id!,
+                      remoteJid: result.messageKey.remoteJid,
+                      fromMe: result.messageKey.fromMe,
+                      participant: result.messageKey.participant,
+                    },
+                    86400 // 24 horas
+                  );
+
+                  if (pinSuccess) {
+                    logger.info(`[POLL] ✅ Enquete fixada automaticamente por 24 horas`);
+
+                    // Atualizar o registro no banco com a data de expiração do pin
+                    if (sentPollId) {
+                      const pinnedUntil = new Date(Date.now() + 86400 * 1000).toISOString();
+                      sqliteService.updateSentPollPinned(sentPollId, pinnedUntil);
+                    }
+                  } else {
+                    logger.warn('[POLL] ⚠️ Não foi possível fixar a enquete automaticamente (bot pode não ser admin)');
+                  }
+                } catch (pinError) {
+                  logger.error('[POLL] Erro ao fixar enquete automaticamente:', pinError);
+                  // Não falhar a operação por erro de pin
+                }
               }
             }
 
@@ -404,7 +443,8 @@ class PollHandler {
 
     logger.info(`[POLL] Executando agendamento #${scheduleId}: ${pollSchedule.name}`);
 
-    const result = await this.createPoll(groupId, pollName, pollSchedule.pollOptions, scheduleId);
+    // autoPin: true - fixa automaticamente por 24 horas
+    const result = await this.createPoll(groupId, pollName, pollSchedule.pollOptions, scheduleId, undefined, true);
 
     if (result.success) {
       sqliteService.updatePollScheduleLastExecuted(scheduleId);
