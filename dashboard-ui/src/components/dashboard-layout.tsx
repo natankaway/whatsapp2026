@@ -17,6 +17,7 @@ import {
   WifiOff,
   Menu,
   X,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +34,7 @@ const menuItems = [
   { title: "Enquetes", url: "/enquetes", icon: BarChart3 },
   { title: "Mensalidades", url: "/mensalidades", icon: CreditCard },
   { title: "Check-ins", url: "/checkins", icon: CheckSquare },
+  { title: "Financeiro", url: "/financeiro", icon: Wallet },
   { title: "Configurações", url: "/configuracoes", icon: Settings },
 ];
 
