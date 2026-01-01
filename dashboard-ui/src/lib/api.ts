@@ -537,3 +537,109 @@ export const resumeBot = () =>
 
 export const reconnectBot = () =>
   fetchApi<{ success: boolean }>('/bot/reconnect', { method: 'POST' });
+
+// ============= Check-in Types =============
+
+export interface CheckinStudent {
+  id: number;
+  name: string;
+  phone: string;
+  unit: 'recreio' | 'bangu';
+  platform: 'wellhub' | 'totalpass' | 'gurupass';
+  balance: number;
+  status: 'active' | 'inactive';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  transactions?: CheckinTransaction[];
+}
+
+export interface CheckinTransaction {
+  id: number;
+  studentId: number;
+  type: 'credit' | 'debit';
+  amount: number;
+  date: string;
+  notes?: string;
+  createdAt: string;
+  studentName?: string;
+  studentPhone?: string;
+}
+
+export interface CheckinSummary {
+  totalStudents: number;
+  totalOwing: number;
+  totalWithCredits: number;
+  totalBalanceOwed: number;
+  totalCreditsAvailable: number;
+}
+
+// ============= Check-in API Functions =============
+
+// Check-in Students
+const extractCheckinStudents = (response: { students: CheckinStudent[] } | CheckinStudent[]): CheckinStudent[] => {
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'students' in response) {
+    return response.students || [];
+  }
+  return [];
+};
+
+export const getCheckinStudents = async (params?: { unit?: string; platform?: string; status?: string }): Promise<CheckinStudent[]> => {
+  const query = new URLSearchParams();
+  if (params?.unit) query.set('unit', params.unit);
+  if (params?.platform) query.set('platform', params.platform);
+  if (params?.status) query.set('status', params.status);
+  const response = await fetchApi<{ students: CheckinStudent[] } | CheckinStudent[]>(`/checkin-students?${query}`);
+  return extractCheckinStudents(response);
+};
+
+export const getCheckinStudentById = (id: number) =>
+  fetchApi<CheckinStudent & { transactions: CheckinTransaction[] }>(`/checkin-students/${id}`);
+
+export const getCheckinStudentsOwing = async (): Promise<CheckinStudent[]> => {
+  const response = await fetchApi<{ students: CheckinStudent[] } | CheckinStudent[]>('/checkin-students/owing');
+  return extractCheckinStudents(response);
+};
+
+export const getCheckinStudentsWithCredits = async (): Promise<CheckinStudent[]> => {
+  const response = await fetchApi<{ students: CheckinStudent[] } | CheckinStudent[]>('/checkin-students/with-credits');
+  return extractCheckinStudents(response);
+};
+
+export const getCheckinSummary = () =>
+  fetchApi<CheckinSummary>('/checkin-students/summary');
+
+export const createCheckinStudent = (data: Omit<CheckinStudent, 'id' | 'createdAt' | 'updatedAt'>) =>
+  fetchApi<CheckinStudent>('/checkin-students', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateCheckinStudent = (id: number, data: Partial<CheckinStudent>) =>
+  fetchApi<CheckinStudent>(`/checkin-students/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+export const deleteCheckinStudent = (id: number) =>
+  fetchApi<{ success: boolean }>(`/checkin-students/${id}`, { method: 'DELETE' });
+
+// Check-in Transactions
+const extractCheckinTransactions = (response: { transactions: CheckinTransaction[] } | CheckinTransaction[]): CheckinTransaction[] => {
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'transactions' in response) {
+    return response.transactions || [];
+  }
+  return [];
+};
+
+export const getCheckinTransactions = async (params?: { studentId?: number; type?: string; startDate?: string; endDate?: string }): Promise<CheckinTransaction[]> => {
+  const query = new URLSearchParams();
+  if (params?.studentId) query.set('studentId', String(params.studentId));
+  if (params?.type) query.set('type', params.type);
+  if (params?.startDate) query.set('startDate', params.startDate);
+  if (params?.endDate) query.set('endDate', params.endDate);
+  const response = await fetchApi<{ transactions: CheckinTransaction[] } | CheckinTransaction[]>(`/checkin-transactions?${query}`);
+  return extractCheckinTransactions(response);
+};
+
+export const createCheckinTransaction = (data: Omit<CheckinTransaction, 'id' | 'createdAt' | 'studentName' | 'studentPhone'>) =>
+  fetchApi<{ transaction: CheckinTransaction; newBalance: number }>('/checkin-transactions', { method: 'POST', body: JSON.stringify(data) });
+
+export const deleteCheckinTransaction = (id: number) =>
+  fetchApi<{ success: boolean }>(`/checkin-transactions/${id}`, { method: 'DELETE' });

@@ -5,6 +5,7 @@ import {
   Calendar,
   BarChart3,
   CreditCard,
+  CheckSquare,
   Settings,
   Zap,
   LogOut,
@@ -54,6 +55,11 @@ const menuItems = [
     title: "Mensalidades",
     url: "/mensalidades",
     icon: CreditCard,
+  },
+  {
+    title: "Check-ins",
+    url: "/checkins",
+    icon: CheckSquare,
   },
   {
     title: "Configurações",
