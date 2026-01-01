@@ -1875,6 +1875,278 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
     }
   });
 
+  // ===========================================================================
+  // CHECK-IN STUDENTS (Alunos de Plataforma)
+  // ===========================================================================
+
+  router.get('/checkin-students', (req: Request, res: Response) => {
+    try {
+      const { unit, platform, status } = req.query;
+      const students = sqliteService.getCheckinStudents({
+        unit: unit as string,
+        platform: platform as string,
+        status: status as string,
+      });
+
+      res.json({
+        total: students.length,
+        students,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar alunos de check-in', error);
+      res.status(500).json({ error: 'Erro ao listar alunos' });
+    }
+  });
+
+  router.get('/checkin-students/summary', (_req: Request, res: Response) => {
+    try {
+      const summary = sqliteService.getCheckinSummary();
+      res.json(summary);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao obter resumo de check-ins', error);
+      res.status(500).json({ error: 'Erro ao obter resumo' });
+    }
+  });
+
+  router.get('/checkin-students/owing', (_req: Request, res: Response) => {
+    try {
+      const students = sqliteService.getCheckinStudentsOwing();
+      res.json({
+        total: students.length,
+        students,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar alunos devendo', error);
+      res.status(500).json({ error: 'Erro ao listar alunos' });
+    }
+  });
+
+  router.get('/checkin-students/with-credits', (_req: Request, res: Response) => {
+    try {
+      const students = sqliteService.getCheckinStudentsWithCredits();
+      res.json({
+        total: students.length,
+        students,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar alunos com créditos', error);
+      res.status(500).json({ error: 'Erro ao listar alunos' });
+    }
+  });
+
+  router.get('/checkin-students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const student = sqliteService.getCheckinStudentById(id);
+      if (!student) {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+        return;
+      }
+
+      const transactions = sqliteService.getCheckinTransactionsByStudent(id);
+
+      res.json({ ...student, transactions });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar aluno de check-in', error);
+      res.status(500).json({ error: 'Erro ao buscar aluno' });
+    }
+  });
+
+  router.post('/checkin-students', (req: Request, res: Response) => {
+    try {
+      const { name, phone, unit, platform, balance, status, notes } = req.body;
+
+      if (!name || !phone || !unit || !platform) {
+        res.status(400).json({ error: 'Campos obrigatórios: name, phone, unit, platform' });
+        return;
+      }
+
+      if (!['recreio', 'bangu'].includes(unit)) {
+        res.status(400).json({ error: 'unit deve ser: recreio ou bangu' });
+        return;
+      }
+
+      if (!['wellhub', 'totalpass', 'gurupass'].includes(platform)) {
+        res.status(400).json({ error: 'platform deve ser: wellhub, totalpass ou gurupass' });
+        return;
+      }
+
+      const student = sqliteService.createCheckinStudent({
+        name,
+        phone,
+        unit,
+        platform,
+        balance: balance || 0,
+        status: status || 'active',
+        notes,
+      });
+
+      if (student) {
+        logger.info(`[Dashboard] Aluno de check-in criado: ${name}`);
+        res.status(201).json(student);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar aluno' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar aluno de check-in', error);
+      res.status(500).json({ error: 'Erro ao criar aluno' });
+    }
+  });
+
+  router.put('/checkin-students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { name, phone, unit, platform, balance, status, notes } = req.body;
+
+      const updateData: Record<string, unknown> = {};
+      if (name !== undefined) updateData.name = name;
+      if (phone !== undefined) updateData.phone = phone;
+      if (unit !== undefined) updateData.unit = unit;
+      if (platform !== undefined) updateData.platform = platform;
+      if (balance !== undefined) updateData.balance = balance;
+      if (status !== undefined) updateData.status = status;
+      if (notes !== undefined) updateData.notes = notes;
+
+      const updated = sqliteService.updateCheckinStudent(id, updateData);
+
+      if (updated) {
+        logger.info(`[Dashboard] Aluno de check-in #${id} atualizado`);
+        const student = sqliteService.getCheckinStudentById(id);
+        res.json(student);
+      } else {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar aluno de check-in', error);
+      res.status(500).json({ error: 'Erro ao atualizar aluno' });
+    }
+  });
+
+  router.delete('/checkin-students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteCheckinStudent(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Aluno de check-in #${id} removido`);
+        res.json({ success: true, message: 'Aluno removido' });
+      } else {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover aluno de check-in', error);
+      res.status(500).json({ error: 'Erro ao remover aluno' });
+    }
+  });
+
+  // ===========================================================================
+  // CHECK-IN TRANSACTIONS (Transações de Check-in)
+  // ===========================================================================
+
+  router.get('/checkin-transactions', (req: Request, res: Response) => {
+    try {
+      const { studentId, type, startDate, endDate } = req.query;
+
+      const transactions = sqliteService.getCheckinTransactions({
+        studentId: studentId ? parseInt(studentId as string, 10) : undefined,
+        type: type as string,
+        startDate: startDate as string,
+        endDate: endDate as string,
+      });
+
+      res.json({
+        total: transactions.length,
+        transactions,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar transações de check-in', error);
+      res.status(500).json({ error: 'Erro ao listar transações' });
+    }
+  });
+
+  router.post('/checkin-transactions', (req: Request, res: Response) => {
+    try {
+      const { studentId, type, amount, date, notes } = req.body;
+
+      if (!studentId || !type || !date) {
+        res.status(400).json({ error: 'Campos obrigatórios: studentId, type, date' });
+        return;
+      }
+
+      if (!['credit', 'debit'].includes(type)) {
+        res.status(400).json({ error: 'type deve ser: credit (fez check-in) ou debit (usou na aula)' });
+        return;
+      }
+
+      // Verificar se aluno existe
+      const student = sqliteService.getCheckinStudentById(studentId);
+      if (!student) {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+        return;
+      }
+
+      const transaction = sqliteService.createCheckinTransaction({
+        studentId,
+        type,
+        amount: amount || 1,
+        date,
+        notes,
+      });
+
+      if (transaction) {
+        // Buscar aluno atualizado para retornar o novo saldo
+        const updatedStudent = sqliteService.getCheckinStudentById(studentId);
+        logger.info(`[Dashboard] Transação de check-in criada: ${type} para aluno #${studentId}`);
+        res.status(201).json({
+          transaction,
+          newBalance: updatedStudent?.balance,
+        });
+      } else {
+        res.status(500).json({ error: 'Erro ao criar transação' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar transação de check-in', error);
+      res.status(500).json({ error: 'Erro ao criar transação' });
+    }
+  });
+
+  router.delete('/checkin-transactions/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteCheckinTransaction(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Transação de check-in #${id} removida`);
+        res.json({ success: true, message: 'Transação removida e saldo revertido' });
+      } else {
+        res.status(404).json({ error: 'Transação não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover transação de check-in', error);
+      res.status(500).json({ error: 'Erro ao remover transação' });
+    }
+  });
+
   return router;
 }
 
