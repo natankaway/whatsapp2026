@@ -1280,8 +1280,8 @@ export function createDashboardRoutes(): Router {
     try {
       const { name, description, targetGroup, customGroupId, dayOfWeek, pollOptions, scheduleHour, scheduleMinute, scheduleDays, isActive } = req.body;
 
-      if (!name || !targetGroup || !dayOfWeek || !pollOptions || !Array.isArray(pollOptions)) {
-        res.status(400).json({ error: 'Campos obrigatórios: name, targetGroup, dayOfWeek, pollOptions (array)' });
+      if (!name || !targetGroup || !pollOptions || !Array.isArray(pollOptions)) {
+        res.status(400).json({ error: 'Campos obrigatórios: name, targetGroup, pollOptions (array)' });
         return;
       }
 
@@ -1305,7 +1305,7 @@ export function createDashboardRoutes(): Router {
         description,
         targetGroup,
         customGroupId,
-        dayOfWeek,
+        dayOfWeek: dayOfWeek || 'auto',
         pollOptions,
         scheduleHour,
         scheduleMinute: scheduleMinute ?? 0,
