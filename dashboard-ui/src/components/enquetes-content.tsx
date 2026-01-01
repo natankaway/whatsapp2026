@@ -253,6 +253,7 @@ export default function EnquetesContent() {
       const result = await executePollSchedule(id);
       if (result.success) {
         alert("Enquete enviada com sucesso!");
+        fetchSentPolls(); // Atualizar lista de enviadas
       } else {
         alert(result.message || "Erro ao enviar enquete");
       }
