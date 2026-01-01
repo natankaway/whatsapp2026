@@ -9,6 +9,7 @@ import {
   Calendar,
   BarChart3,
   CreditCard,
+  CheckSquare,
   Settings,
   Zap,
   LogOut,
@@ -31,6 +32,7 @@ const menuItems = [
   { title: "Agendamentos", url: "/agendamentos", icon: Calendar },
   { title: "Enquetes", url: "/enquetes", icon: BarChart3 },
   { title: "Mensalidades", url: "/mensalidades", icon: CreditCard },
+  { title: "Check-ins", url: "/checkins", icon: CheckSquare },
   { title: "Configurações", url: "/configuracoes", icon: Settings },
 ];
 
