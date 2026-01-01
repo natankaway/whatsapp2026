@@ -643,3 +643,46 @@ export const createCheckinTransaction = (data: Omit<CheckinTransaction, 'id' | '
 
 export const deleteCheckinTransaction = (id: number) =>
   fetchApi<{ success: boolean }>(`/checkin-transactions/${id}`, { method: 'DELETE' });
+
+// ============= Sent Polls Types =============
+
+export interface SentPoll {
+  id: number;
+  scheduleId?: number;
+  templateId?: number;
+  groupId: string;
+  messageId: string;
+  messageKey: string;
+  title: string;
+  options: string[];
+  sentAt: string;
+  pinnedUntil?: string;
+  createdAt: string;
+}
+
+export type PinDuration = 86400 | 604800 | 2592000; // 24h, 7d, 30d
+
+// ============= Sent Polls API Functions =============
+
+export const getSentPolls = async (params?: { groupId?: string; limit?: number }): Promise<SentPoll[]> => {
+  const query = new URLSearchParams();
+  if (params?.groupId) query.set('groupId', params.groupId);
+  if (params?.limit) query.set('limit', String(params.limit));
+  const response = await fetchApi<{ sentPolls: SentPoll[] }>(`/sent-polls?${query}`);
+  return response.sentPolls || [];
+};
+
+export const getSentPollById = (id: number) =>
+  fetchApi<SentPoll>(`/sent-polls/${id}`);
+
+export const pinSentPoll = (id: number, duration: PinDuration) =>
+  fetchApi<{ success: boolean; message: string; pinnedUntil: string }>(`/sent-polls/${id}/pin`, {
+    method: 'POST',
+    body: JSON.stringify({ duration }),
+  });
+
+export const unpinSentPoll = (id: number) =>
+  fetchApi<{ success: boolean; message: string }>(`/sent-polls/${id}/unpin`, { method: 'POST' });
+
+export const deleteSentPoll = (id: number) =>
+  fetchApi<{ success: boolean }>(`/sent-polls/${id}`, { method: 'DELETE' });

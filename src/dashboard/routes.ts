@@ -974,12 +974,16 @@ export function createDashboardRoutes(): Router {
         return;
       }
 
-      // Enviar enquete
-      const success = await pollHandler.createPoll(groupId, poll.name, poll.options);
+      // Enviar enquete (passa templateId para rastreamento)
+      const result = await pollHandler.createPoll(groupId, poll.name, poll.options, undefined, id);
 
-      if (success) {
+      if (result.success) {
         logger.info(`[Dashboard] Enquete "${poll.name}" enviada para ${poll.targetGroup}`);
-        res.json({ success: true, message: 'Enquete enviada com sucesso' });
+        res.json({
+          success: true,
+          message: 'Enquete enviada com sucesso',
+          messageId: result.messageId,
+        });
       } else {
         res.status(500).json({ error: 'Falha ao enviar enquete' });
       }
@@ -1050,6 +1054,183 @@ export function createDashboardRoutes(): Router {
     } catch (error) {
       logger.error('[Dashboard] Erro ao atualizar nomes de enquetes', error);
       res.status(500).json({ error: 'Erro ao atualizar nomes de enquetes' });
+    }
+  });
+
+  // ===========================================================================
+  // SENT POLLS (Enquetes Enviadas - para fixar/desfixar)
+  // ===========================================================================
+
+  router.get('/sent-polls', (req: Request, res: Response) => {
+    try {
+      const groupId = req.query.groupId as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      const sentPolls = sqliteService.getSentPolls({ groupId, limit });
+      res.json({
+        total: sentPolls.length,
+        sentPolls,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar enquetes enviadas', error);
+      res.status(500).json({ error: 'Erro ao listar enquetes enviadas' });
+    }
+  });
+
+  router.get('/sent-polls/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const sentPoll = sqliteService.getSentPollById(id);
+      if (!sentPoll) {
+        res.status(404).json({ error: 'Enquete enviada não encontrada' });
+        return;
+      }
+
+      res.json(sentPoll);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar enquete enviada', error);
+      res.status(500).json({ error: 'Erro ao buscar enquete enviada' });
+    }
+  });
+
+  // Fixar enquete
+  router.post('/sent-polls/:id/pin', async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { duration } = req.body;
+      const validDurations = [86400, 604800, 2592000]; // 24h, 7d, 30d
+
+      if (!duration || !validDurations.includes(duration)) {
+        res.status(400).json({
+          error: 'Duração inválida. Use: 86400 (24h), 604800 (7 dias) ou 2592000 (30 dias)',
+        });
+        return;
+      }
+
+      const sentPoll = sqliteService.getSentPollById(id);
+      if (!sentPoll) {
+        res.status(404).json({ error: 'Enquete enviada não encontrada' });
+        return;
+      }
+
+      // Verificar se WhatsApp está conectado
+      if (!whatsappService.isConnected()) {
+        res.status(503).json({ error: 'WhatsApp não está conectado' });
+        return;
+      }
+
+      // Parsear messageKey
+      let messageKey;
+      try {
+        messageKey = JSON.parse(sentPoll.messageKey);
+      } catch {
+        res.status(500).json({ error: 'Erro ao processar chave da mensagem' });
+        return;
+      }
+
+      // Fixar mensagem
+      const success = await whatsappService.pinMessage(
+        sentPoll.groupId,
+        messageKey,
+        duration as 86400 | 604800 | 2592000
+      );
+
+      if (success) {
+        // Calcular data de expiração do pin
+        const pinnedUntil = new Date(Date.now() + duration * 1000).toISOString();
+        sqliteService.updateSentPollPinned(id, pinnedUntil);
+
+        const durationText = duration === 86400 ? '24 horas' : duration === 604800 ? '7 dias' : '30 dias';
+        logger.info(`[Dashboard] Enquete "${sentPoll.title}" fixada por ${durationText}`);
+        res.json({
+          success: true,
+          message: `Enquete fixada por ${durationText}`,
+          pinnedUntil,
+        });
+      } else {
+        res.status(500).json({ error: 'Falha ao fixar enquete. O bot precisa ser admin do grupo.' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao fixar enquete', error);
+      res.status(500).json({ error: 'Erro ao fixar enquete' });
+    }
+  });
+
+  // Desfixar enquete
+  router.post('/sent-polls/:id/unpin', async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const sentPoll = sqliteService.getSentPollById(id);
+      if (!sentPoll) {
+        res.status(404).json({ error: 'Enquete enviada não encontrada' });
+        return;
+      }
+
+      // Verificar se WhatsApp está conectado
+      if (!whatsappService.isConnected()) {
+        res.status(503).json({ error: 'WhatsApp não está conectado' });
+        return;
+      }
+
+      // Parsear messageKey
+      let messageKey;
+      try {
+        messageKey = JSON.parse(sentPoll.messageKey);
+      } catch {
+        res.status(500).json({ error: 'Erro ao processar chave da mensagem' });
+        return;
+      }
+
+      // Desfixar mensagem
+      const success = await whatsappService.unpinMessage(sentPoll.groupId, messageKey);
+
+      if (success) {
+        sqliteService.updateSentPollPinned(id, null);
+        logger.info(`[Dashboard] Enquete "${sentPoll.title}" desfixada`);
+        res.json({ success: true, message: 'Enquete desfixada' });
+      } else {
+        res.status(500).json({ error: 'Falha ao desfixar enquete' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao desfixar enquete', error);
+      res.status(500).json({ error: 'Erro ao desfixar enquete' });
+    }
+  });
+
+  // Deletar enquete enviada do histórico
+  router.delete('/sent-polls/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteSentPoll(id);
+      if (deleted) {
+        logger.info(`[Dashboard] Enquete enviada #${id} deletada do histórico`);
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ error: 'Enquete não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao deletar enquete enviada', error);
+      res.status(500).json({ error: 'Erro ao deletar enquete enviada' });
     }
   });
 

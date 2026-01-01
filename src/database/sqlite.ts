@@ -120,6 +120,38 @@ export interface BotSettings {
 }
 
 // =============================================================================
+// INTERFACES PARA ENQUETES ENVIADAS
+// =============================================================================
+
+export interface SentPollRecord {
+  id?: number;
+  scheduleId?: number;
+  templateId?: number;
+  groupId: string;
+  messageId: string;
+  messageKey: string; // JSON stringified WAMessageKey
+  title: string;
+  options: string[];
+  sentAt: string;
+  pinnedUntil?: string;
+  createdAt: string;
+}
+
+interface SentPollRecordRaw {
+  id: number;
+  schedule_id: number | null;
+  template_id: number | null;
+  group_id: string;
+  message_id: string;
+  message_key: string;
+  title: string;
+  options: string;
+  sent_at: string;
+  pinned_until: string | null;
+  created_at: string;
+}
+
+// =============================================================================
 // INTERFACES PARA CONTROLE DE MENSALIDADES
 // =============================================================================
 
@@ -746,6 +778,33 @@ class SQLiteService {
           db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_transactions_student ON checkin_transactions(student_id)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_transactions_date ON checkin_transactions(date)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_transactions_type ON checkin_transactions(type)`);
+        },
+      },
+      {
+        name: '011_create_sent_polls_table',
+        up: (db) => {
+          // Tabela de enquetes enviadas (para poder fixar depois)
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS sent_polls (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              schedule_id INTEGER,
+              template_id INTEGER,
+              group_id TEXT NOT NULL,
+              message_id TEXT NOT NULL,
+              message_key TEXT NOT NULL,
+              title TEXT NOT NULL,
+              options TEXT NOT NULL DEFAULT '[]',
+              sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+              pinned_until TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              FOREIGN KEY (schedule_id) REFERENCES poll_schedules(id) ON DELETE SET NULL,
+              FOREIGN KEY (template_id) REFERENCES poll_templates(id) ON DELETE SET NULL
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_polls_group ON sent_polls(group_id)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_polls_message ON sent_polls(message_id)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_sent_polls_sent_at ON sent_polls(sent_at)`);
         },
       },
     ];
@@ -2677,6 +2736,128 @@ class SQLiteService {
       totalWithCredits: 0,
       totalBalanceOwed: 0,
       totalCreditsAvailable: 0,
+    };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE ENQUETES ENVIADAS (SENT_POLLS)
+  // ===========================================================================
+
+  createSentPoll(poll: Omit<SentPollRecord, 'id' | 'createdAt'>): SentPollRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO sent_polls (schedule_id, template_id, group_id, message_id, message_key, title, options, sent_at, pinned_until, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        poll.scheduleId ?? null,
+        poll.templateId ?? null,
+        poll.groupId,
+        poll.messageId,
+        poll.messageKey,
+        poll.title,
+        JSON.stringify(poll.options),
+        poll.sentAt,
+        poll.pinnedUntil ?? null,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...poll,
+        createdAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar sent_poll:', error);
+      return null;
+    }
+  }
+
+  getSentPolls(filters?: { groupId?: string; limit?: number }): SentPollRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT id, schedule_id, template_id, group_id, message_id, message_key, title, options, sent_at, pinned_until, created_at
+      FROM sent_polls
+    `;
+
+    const params: (string | number)[] = [];
+
+    if (filters?.groupId) {
+      query += ' WHERE group_id = ?';
+      params.push(filters.groupId);
+    }
+
+    query += ' ORDER BY sent_at DESC';
+
+    if (filters?.limit) {
+      query += ' LIMIT ?';
+      params.push(filters.limit);
+    }
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as SentPollRecordRaw[];
+    return rows.map(this.parseSentPollRow);
+  }
+
+  getSentPollById(id: number): SentPollRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, schedule_id, template_id, group_id, message_id, message_key, title, options, sent_at, pinned_until, created_at
+      FROM sent_polls
+      WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as SentPollRecordRaw | undefined;
+    return row ? this.parseSentPollRow(row) : null;
+  }
+
+  updateSentPollPinned(id: number, pinnedUntil: string | null): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE sent_polls SET pinned_until = ? WHERE id = ?
+      `);
+      const result = stmt.run(pinnedUntil, id);
+      return result.changes > 0;
+    } catch (error) {
+      logger.error('[SQLite] Erro ao atualizar pinned_until:', error);
+      return false;
+    }
+  }
+
+  deleteSentPoll(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const stmt = this.db.prepare('DELETE FROM sent_polls WHERE id = ?');
+      const result = stmt.run(id);
+      return result.changes > 0;
+    } catch (error) {
+      logger.error('[SQLite] Erro ao deletar sent_poll:', error);
+      return false;
+    }
+  }
+
+  private parseSentPollRow(row: SentPollRecordRaw): SentPollRecord {
+    return {
+      id: row.id,
+      scheduleId: row.schedule_id ?? undefined,
+      templateId: row.template_id ?? undefined,
+      groupId: row.group_id,
+      messageId: row.message_id,
+      messageKey: row.message_key,
+      title: row.title,
+      options: JSON.parse(row.options || '[]'),
+      sentAt: row.sent_at,
+      pinnedUntil: row.pinned_until ?? undefined,
+      createdAt: row.created_at,
     };
   }
 

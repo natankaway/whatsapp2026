@@ -1,5 +1,6 @@
 import schedule from 'node-schedule';
 import type { WhatsAppSocket } from '../types/index.js';
+import type { proto } from '@whiskeysockets/baileys';
 import CONFIG from '../config/index.js';
 import logger from '../utils/logger.js';
 import sqliteService from '../database/sqlite.js';
@@ -7,6 +8,13 @@ import type { PollScheduleRecord } from '../database/sqlite.js';
 
 // Importar whatsappService para sempre ter o socket atual
 import whatsappService from '../services/whatsapp.js';
+
+// Interface para resultado de envio de enquete
+interface PollSendResult {
+  success: boolean;
+  messageId?: string;
+  messageKey?: proto.IMessageKey;
+}
 
 // =============================================================================
 // POLL HANDLER - Sistema robusto de criação de enquetes
@@ -110,9 +118,9 @@ class PollHandler {
     groupId: string,
     title: string,
     options: string[]
-  ): Promise<boolean> {
+  ): Promise<PollSendResult> {
     const sock = whatsappService.getSocket();
-    
+
     if (!sock) {
       throw new Error('Socket não disponível');
     }
@@ -129,21 +137,29 @@ class PollHandler {
 
     if (result?.key?.id) {
       logger.info(`[POLL] ✅ Enquete enviada com sucesso! ID: ${result.key.id}`);
-      return true;
+      return {
+        success: true,
+        messageId: result.key.id,
+        messageKey: result.key,
+      };
     }
 
     logger.warn('[POLL] Enquete enviada mas sem confirmação de ID');
-    return true; // Considerar sucesso mesmo sem ID
+    return { success: true }; // Considerar sucesso mesmo sem ID
   }
 
   /**
    * Cria enquete com sistema robusto de retry e verificação de conexão
+   * @param scheduleId - ID do agendamento (opcional, para rastreamento)
+   * @param templateId - ID do template (opcional, para rastreamento)
    */
   async createPoll(
     groupId: string,
     title: string,
-    options: string[]
-  ): Promise<boolean> {
+    options: string[],
+    scheduleId?: number,
+    templateId?: number
+  ): Promise<PollSendResult> {
     // Evitar execuções simultâneas
     if (this.isCreatingPoll) {
       logger.warn('[POLL] Já existe uma criação de enquete em andamento, aguardando...');
@@ -161,13 +177,13 @@ class PollHandler {
 
           // PASSO 1: Verificar se está conectado
           const isReady = await this.isSocketReady();
-          
+
           if (!isReady) {
             logger.warn(`[POLL] Conexão não está pronta, aguardando...`);
-            
+
             // Aguardar conexão com timeout de 2 minutos
             const connected = await this.waitForConnection(120000);
-            
+
             if (!connected) {
               throw new Error('Não foi possível estabelecer conexão');
             }
@@ -181,11 +197,35 @@ class PollHandler {
           await this.delay(2000);
 
           // PASSO 3: Enviar enquete
-          const success = await this.sendPollMessage(groupId, title, options);
-          
-          if (success) {
+          const result = await this.sendPollMessage(groupId, title, options);
+
+          if (result.success) {
             logger.pollCreated(title, groupId);
-            return true;
+
+            // PASSO 4: Salvar enquete enviada no banco de dados
+            if (result.messageId && result.messageKey) {
+              try {
+                const sentPoll = sqliteService.createSentPoll({
+                  scheduleId,
+                  templateId,
+                  groupId,
+                  messageId: result.messageId,
+                  messageKey: JSON.stringify(result.messageKey),
+                  title,
+                  options,
+                  sentAt: new Date().toISOString(),
+                });
+
+                if (sentPoll) {
+                  logger.info(`[POLL] Enquete salva no banco com ID: ${sentPoll.id}`);
+                }
+              } catch (dbError) {
+                logger.error('[POLL] Erro ao salvar enquete no banco:', dbError);
+                // Não falhar a operação por erro de banco
+              }
+            }
+
+            return result;
           }
 
         } catch (error) {
@@ -202,7 +242,7 @@ class PollHandler {
       }
 
       logger.error(`[POLL] ❌ FALHA DEFINITIVA: Não foi possível criar enquete "${title}" após ${maxRetries} tentativas`);
-      return false;
+      return { success: false };
 
     } finally {
       this.isCreatingPoll = false;
@@ -364,13 +404,13 @@ class PollHandler {
 
     logger.info(`[POLL] Executando agendamento #${scheduleId}: ${pollSchedule.name}`);
 
-    const success = await this.createPoll(groupId, pollName, pollSchedule.pollOptions);
+    const result = await this.createPoll(groupId, pollName, pollSchedule.pollOptions, scheduleId);
 
-    if (success) {
+    if (result.success) {
       sqliteService.updatePollScheduleLastExecuted(scheduleId);
     }
 
-    return success;
+    return result.success;
   }
 
   /**

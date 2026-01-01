@@ -273,6 +273,79 @@ class WhatsAppService {
   async sendFormattedMessage(to: string, text: string): Promise<boolean> {
     return this.sendMessage(to, text);
   }
+
+  /**
+   * Fixa uma mensagem em um chat/grupo
+   * @param chatId - ID do chat/grupo
+   * @param messageKey - Chave da mensagem (WAMessageKey)
+   * @param duration - Duração em segundos: 86400 (24h), 604800 (7 dias), 2592000 (30 dias)
+   * @returns true se fixou com sucesso, false caso contrário
+   */
+  async pinMessage(
+    chatId: string,
+    messageKey: { id: string; remoteJid?: string | null; fromMe?: boolean | null; participant?: string | null },
+    duration: 86400 | 604800 | 2592000 = 604800
+  ): Promise<boolean> {
+    if (!this.sock || !this.isConnected()) {
+      logger.error(`[WhatsApp] Não conectado, impossível fixar mensagem`);
+      return false;
+    }
+
+    try {
+      // Garantir que o remoteJid está correto
+      const key = {
+        ...messageKey,
+        remoteJid: messageKey.remoteJid || chatId,
+      };
+
+      await this.sock.sendMessage(chatId, {
+        pin: key,
+        type: 1, // PIN_FOR_ALL
+        time: duration,
+      });
+
+      const durationText = duration === 86400 ? '24 horas' : duration === 604800 ? '7 dias' : '30 dias';
+      logger.info(`[WhatsApp] Mensagem fixada por ${durationText} no chat ${chatId}`);
+      return true;
+    } catch (error) {
+      logger.error(`[WhatsApp] Erro ao fixar mensagem no chat ${chatId}`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Desfixa uma mensagem de um chat/grupo
+   * @param chatId - ID do chat/grupo
+   * @param messageKey - Chave da mensagem (WAMessageKey)
+   * @returns true se desfixou com sucesso, false caso contrário
+   */
+  async unpinMessage(
+    chatId: string,
+    messageKey: { id: string; remoteJid?: string | null; fromMe?: boolean | null; participant?: string | null }
+  ): Promise<boolean> {
+    if (!this.sock || !this.isConnected()) {
+      logger.error(`[WhatsApp] Não conectado, impossível desfixar mensagem`);
+      return false;
+    }
+
+    try {
+      const key = {
+        ...messageKey,
+        remoteJid: messageKey.remoteJid || chatId,
+      };
+
+      await this.sock.sendMessage(chatId, {
+        pin: key,
+        type: 2, // UNPIN_FOR_ALL
+      });
+
+      logger.info(`[WhatsApp] Mensagem desfixada no chat ${chatId}`);
+      return true;
+    } catch (error) {
+      logger.error(`[WhatsApp] Erro ao desfixar mensagem no chat ${chatId}`, error);
+      return false;
+    }
+  }
 }
 
 // Singleton
