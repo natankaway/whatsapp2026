@@ -187,6 +187,65 @@ export interface StudentWithPayments extends StudentRecord {
   daysOverdue?: number;
 }
 
+// =============================================================================
+// INTERFACES PARA CONTROLE DE CHECK-INS (PLATAFORMAS)
+// =============================================================================
+
+export interface CheckinStudentRecord {
+  id?: number;
+  name: string;
+  phone: string;
+  unit: 'recreio' | 'bangu';
+  platform: 'wellhub' | 'totalpass' | 'gurupass';
+  balance: number; // saldo de check-ins (positivo = tem créditos, negativo = deve)
+  status: 'active' | 'inactive';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface CheckinStudentRecordRaw {
+  id: number;
+  name: string;
+  phone: string;
+  unit: string;
+  platform: string;
+  balance: number;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CheckinTransactionRecord {
+  id?: number;
+  studentId: number;
+  type: 'credit' | 'debit'; // credit = fez check-in no app, debit = usou na aula
+  amount: number; // quantidade de check-ins
+  date: string; // YYYY-MM-DD
+  notes?: string;
+  createdAt: string;
+  // campos do JOIN
+  studentName?: string;
+  studentPhone?: string;
+}
+
+interface CheckinTransactionRecordRaw {
+  id: number;
+  studentId: number;
+  type: string;
+  amount: number;
+  date: string;
+  notes: string | null;
+  createdAt: string;
+  studentName?: string;
+  studentPhone?: string;
+}
+
+export interface CheckinStudentWithBalance extends CheckinStudentRecord {
+  lastTransaction?: CheckinTransactionRecord;
+}
+
 export interface UnitRecord {
   id?: number;
   slug: string;
@@ -644,6 +703,49 @@ class SQLiteService {
           db.exec(`CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_payments_reference ON payments(reference_month)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date)`);
+        },
+      },
+      {
+        name: '010_create_checkin_tables',
+        up: (db) => {
+          // Tabela de alunos de check-in (plataformas)
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS checkin_students (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              unit TEXT NOT NULL CHECK(unit IN ('recreio', 'bangu')),
+              platform TEXT NOT NULL CHECK(platform IN ('wellhub', 'totalpass', 'gurupass')),
+              balance INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_students_unit ON checkin_students(unit)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_students_platform ON checkin_students(platform)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_students_status ON checkin_students(status)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_students_phone ON checkin_students(phone)`);
+
+          // Tabela de transações de check-in
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS checkin_transactions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              student_id INTEGER NOT NULL,
+              type TEXT NOT NULL CHECK(type IN ('credit', 'debit')),
+              amount INTEGER NOT NULL DEFAULT 1,
+              date TEXT NOT NULL,
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              FOREIGN KEY (student_id) REFERENCES checkin_students(id) ON DELETE CASCADE
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_transactions_student ON checkin_transactions(student_id)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_transactions_date ON checkin_transactions(date)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_checkin_transactions_type ON checkin_transactions(type)`);
         },
       },
     ];
@@ -2190,6 +2292,391 @@ class SQLiteService {
       totalPending: activeStudents.length - paidStudentIds.size,
       totalRevenue,
       payments,
+    };
+  }
+
+// ===========================================================================
+  // OPERAÇÕES DE ALUNOS DE CHECK-IN (CHECKIN_STUDENTS)
+  // ===========================================================================
+
+  getCheckinStudents(filters?: { unit?: string; platform?: string; status?: string }): CheckinStudentRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT id, name, phone, unit, platform, balance, status, notes,
+             created_at as createdAt, updated_at as updatedAt
+      FROM checkin_students
+    `;
+
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (filters?.unit) {
+      conditions.push('unit = ?');
+      values.push(filters.unit);
+    }
+
+    if (filters?.platform) {
+      conditions.push('platform = ?');
+      values.push(filters.platform);
+    }
+
+    if (filters?.status) {
+      conditions.push('status = ?');
+      values.push(filters.status);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY name';
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...values) as CheckinStudentRecordRaw[];
+    return rows.map(this.parseCheckinStudentRow);
+  }
+
+  getCheckinStudentById(id: number): CheckinStudentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, phone, unit, platform, balance, status, notes,
+             created_at as createdAt, updated_at as updatedAt
+      FROM checkin_students WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as CheckinStudentRecordRaw | undefined;
+    return row ? this.parseCheckinStudentRow(row) : null;
+  }
+
+  createCheckinStudent(student: Omit<CheckinStudentRecord, 'id' | 'createdAt' | 'updatedAt'>): CheckinStudentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO checkin_students (name, phone, unit, platform, balance, status, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        student.name,
+        student.phone,
+        student.unit,
+        student.platform,
+        student.balance || 0,
+        student.status || 'active',
+        student.notes ?? null,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...student,
+        balance: student.balance || 0,
+        status: student.status || 'active',
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar aluno de check-in', error);
+      return null;
+    }
+  }
+
+  updateCheckinStudent(id: number, student: Partial<Omit<CheckinStudentRecord, 'id' | 'createdAt' | 'updatedAt'>>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if (student.name !== undefined) { updates.push('name = ?'); values.push(student.name); }
+      if (student.phone !== undefined) { updates.push('phone = ?'); values.push(student.phone); }
+      if (student.unit !== undefined) { updates.push('unit = ?'); values.push(student.unit); }
+      if (student.platform !== undefined) { updates.push('platform = ?'); values.push(student.platform); }
+      if (student.balance !== undefined) { updates.push('balance = ?'); values.push(student.balance); }
+      if (student.status !== undefined) { updates.push('status = ?'); values.push(student.status); }
+      if (student.notes !== undefined) { updates.push('notes = ?'); values.push(student.notes); }
+
+      if (updates.length === 0) return false;
+
+      updates.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`UPDATE checkin_students SET ${updates.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar aluno de check-in #${id}`, error);
+      return false;
+    }
+  }
+
+  deleteCheckinStudent(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM checkin_students WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  private parseCheckinStudentRow(row: CheckinStudentRecordRaw): CheckinStudentRecord {
+    return {
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      unit: row.unit as 'recreio' | 'bangu',
+      platform: row.platform as 'wellhub' | 'totalpass' | 'gurupass',
+      balance: row.balance,
+      status: row.status as 'active' | 'inactive',
+      notes: row.notes ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE TRANSAÇÕES DE CHECK-IN (CHECKIN_TRANSACTIONS)
+  // ===========================================================================
+
+  getCheckinTransactions(filters?: { studentId?: number; type?: string; startDate?: string; endDate?: string }): CheckinTransactionRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT t.id, t.student_id as studentId, t.type, t.amount, t.date, t.notes,
+             t.created_at as createdAt, s.name as studentName, s.phone as studentPhone
+      FROM checkin_transactions t
+      LEFT JOIN checkin_students s ON t.student_id = s.id
+    `;
+
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (filters?.studentId) {
+      conditions.push('t.student_id = ?');
+      values.push(filters.studentId);
+    }
+
+    if (filters?.type) {
+      conditions.push('t.type = ?');
+      values.push(filters.type);
+    }
+
+    if (filters?.startDate) {
+      conditions.push('t.date >= ?');
+      values.push(filters.startDate);
+    }
+
+    if (filters?.endDate) {
+      conditions.push('t.date <= ?');
+      values.push(filters.endDate);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY t.date DESC, t.created_at DESC';
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...values) as CheckinTransactionRecordRaw[];
+    return rows.map(this.parseCheckinTransactionRow);
+  }
+
+  getCheckinTransactionsByStudent(studentId: number): CheckinTransactionRecord[] {
+    return this.getCheckinTransactions({ studentId });
+  }
+
+  createCheckinTransaction(transaction: Omit<CheckinTransactionRecord, 'id' | 'createdAt' | 'studentName' | 'studentPhone'>): CheckinTransactionRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+
+      // Usar transaction para atualizar saldo atomicamente
+      const insertStmt = this.db.prepare(`
+        INSERT INTO checkin_transactions (student_id, type, amount, date, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      const updateBalanceStmt = this.db.prepare(`
+        UPDATE checkin_students
+        SET balance = balance + ?, updated_at = ?
+        WHERE id = ?
+      `);
+
+      const result = this.db.transaction(() => {
+        const insertResult = insertStmt.run(
+          transaction.studentId,
+          transaction.type,
+          transaction.amount || 1,
+          transaction.date,
+          transaction.notes ?? null,
+          now
+        );
+
+        // Atualizar saldo: credit adiciona, debit subtrai
+        const balanceChange = transaction.type === 'credit'
+          ? (transaction.amount || 1)
+          : -(transaction.amount || 1);
+
+        updateBalanceStmt.run(balanceChange, now, transaction.studentId);
+
+        return insertResult;
+      })();
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...transaction,
+        amount: transaction.amount || 1,
+        createdAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao registrar transação de check-in', error);
+      return null;
+    }
+  }
+
+  deleteCheckinTransaction(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      // Primeiro buscar a transação para reverter o saldo
+      const getStmt = this.db.prepare(`
+        SELECT student_id as studentId, type, amount FROM checkin_transactions WHERE id = ?
+      `);
+      const transaction = getStmt.get(id) as { studentId: number; type: string; amount: number } | undefined;
+
+      if (!transaction) return false;
+
+      const deleteStmt = this.db.prepare('DELETE FROM checkin_transactions WHERE id = ?');
+      const updateBalanceStmt = this.db.prepare(`
+        UPDATE checkin_students
+        SET balance = balance + ?, updated_at = ?
+        WHERE id = ?
+      `);
+
+      this.db.transaction(() => {
+        deleteStmt.run(id);
+
+        // Reverter o saldo: se era credit, subtrai; se era debit, adiciona
+        const balanceRevert = transaction.type === 'credit'
+          ? -transaction.amount
+          : transaction.amount;
+
+        updateBalanceStmt.run(balanceRevert, new Date().toISOString(), transaction.studentId);
+      })();
+
+      return true;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao deletar transação de check-in #${id}`, error);
+      return false;
+    }
+  }
+
+  private parseCheckinTransactionRow(row: CheckinTransactionRecordRaw): CheckinTransactionRecord {
+    return {
+      id: row.id,
+      studentId: row.studentId,
+      type: row.type as 'credit' | 'debit',
+      amount: row.amount,
+      date: row.date,
+      notes: row.notes ?? undefined,
+      createdAt: row.createdAt,
+      studentName: row.studentName,
+      studentPhone: row.studentPhone,
+    };
+  }
+
+  // ===========================================================================
+  // RELATÓRIOS DE CHECK-INS
+  // ===========================================================================
+
+  getCheckinStudentsWithBalance(): CheckinStudentWithBalance[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const students = this.getCheckinStudents({ status: 'active' });
+
+    return students.map(student => {
+      const transactions = this.getCheckinTransactionsByStudent(student.id!);
+      const lastTransaction = transactions.length > 0 ? transactions[0] : undefined;
+
+      return {
+        ...student,
+        lastTransaction,
+      };
+    });
+  }
+
+  getCheckinStudentsOwing(): CheckinStudentRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, phone, unit, platform, balance, status, notes,
+             created_at as createdAt, updated_at as updatedAt
+      FROM checkin_students
+      WHERE status = 'active' AND balance < 0
+      ORDER BY balance ASC
+    `);
+
+    const rows = stmt.all() as CheckinStudentRecordRaw[];
+    return rows.map(this.parseCheckinStudentRow);
+  }
+
+  getCheckinStudentsWithCredits(): CheckinStudentRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, phone, unit, platform, balance, status, notes,
+             created_at as createdAt, updated_at as updatedAt
+      FROM checkin_students
+      WHERE status = 'active' AND balance > 0
+      ORDER BY balance DESC
+    `);
+
+    const rows = stmt.all() as CheckinStudentRecordRaw[];
+    return rows.map(this.parseCheckinStudentRow);
+  }
+
+  getCheckinSummary(): {
+    totalStudents: number;
+    totalOwing: number;
+    totalWithCredits: number;
+    totalBalanceOwed: number;
+    totalCreditsAvailable: number;
+  } {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT
+        COUNT(*) as totalStudents,
+        SUM(CASE WHEN balance < 0 THEN 1 ELSE 0 END) as totalOwing,
+        SUM(CASE WHEN balance > 0 THEN 1 ELSE 0 END) as totalWithCredits,
+        SUM(CASE WHEN balance < 0 THEN ABS(balance) ELSE 0 END) as totalBalanceOwed,
+        SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END) as totalCreditsAvailable
+      FROM checkin_students
+      WHERE status = 'active'
+    `);
+
+    const result = stmt.get() as {
+      totalStudents: number;
+      totalOwing: number;
+      totalWithCredits: number;
+      totalBalanceOwed: number;
+      totalCreditsAvailable: number;
+    };
+
+    return result || {
+      totalStudents: 0,
+      totalOwing: 0,
+      totalWithCredits: 0,
+      totalBalanceOwed: 0,
+      totalCreditsAvailable: 0,
     };
   }
 
