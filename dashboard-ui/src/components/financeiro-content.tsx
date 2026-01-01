@@ -418,19 +418,13 @@ export default function FinanceiroContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas</SelectItem>
-                  <SelectItem value="" disabled className="font-bold">
-                    -- Entradas --
-                  </SelectItem>
                   {CASH_CATEGORIES.income.map((c) => (
-                    <SelectItem key={c.value} value={c.value}>
+                    <SelectItem key={`income-${c.value}`} value={c.value}>
                       {c.label}
                     </SelectItem>
                   ))}
-                  <SelectItem value="" disabled className="font-bold">
-                    -- Saidas --
-                  </SelectItem>
                   {CASH_CATEGORIES.expense.map((c) => (
-                    <SelectItem key={c.value} value={c.value}>
+                    <SelectItem key={`expense-${c.value}`} value={c.value}>
                       {c.label}
                     </SelectItem>
                   ))}
