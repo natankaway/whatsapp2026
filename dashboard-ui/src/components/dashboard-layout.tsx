@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   Wallet,
+  LineChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +37,8 @@ const menuItems = [
   { title: "Mensalidades", url: "/mensalidades", icon: CreditCard },
   { title: "Check-ins", url: "/checkins", icon: CheckSquare },
   { title: "Financeiro", url: "/financeiro", icon: Wallet },
-  { title: "Configurações", url: "/configuracoes", icon: Settings },
+  { title: "Relatorios", url: "/relatorios", icon: LineChart },
+  { title: "Configuracoes", url: "/configuracoes", icon: Settings },
 ];
 
 export function DashboardLayout({ children, title }: DashboardLayoutProps) {
