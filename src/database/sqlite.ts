@@ -3225,6 +3225,17 @@ class SQLiteService {
   }
 
   /**
+   * Remove transação de caixa por referência (ex: quando um pagamento é removido)
+   */
+  deleteCashTransactionByReference(referenceId: number, referenceType: string): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM cash_transactions WHERE reference_id = ? AND reference_type = ?');
+    const result = stmt.run(referenceId, referenceType);
+    return result.changes > 0;
+  }
+
+  /**
    * Obtém resumo do caixa
    */
   getCashSummary(filters?: { unit?: string; startDate?: string; endDate?: string }): CashSummary {

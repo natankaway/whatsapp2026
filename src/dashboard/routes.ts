@@ -1846,6 +1846,21 @@ export function createDashboardRoutes(): Router {
       });
 
       if (payment) {
+        // Criar transação de caixa automaticamente para o pagamento de mensalidade
+        const monthFormatted = new Date(referenceMonth + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+        sqliteService.createCashTransaction({
+          unit: student.unit,
+          type: 'income',
+          category: 'mensalidade',
+          description: `Mensalidade - ${student.name} - ${monthFormatted}`,
+          amount: Math.round(amount * 100),
+          paymentMethod,
+          date: paymentDate,
+          referenceId: payment.id,
+          referenceType: 'payment',
+          notes: notes || undefined,
+        });
+
         logger.info(`[Dashboard] Pagamento registrado para aluno #${studentId}: R$ ${(amount).toFixed(2)}`);
         res.status(201).json(payment);
       } else {
@@ -1864,6 +1879,9 @@ export function createDashboardRoutes(): Router {
         res.status(400).json({ error: 'ID inválido' });
         return;
       }
+
+      // Remover transação de caixa associada antes de remover o pagamento
+      sqliteService.deleteCashTransactionByReference(id, 'payment');
 
       const deleted = sqliteService.deletePayment(id);
 
