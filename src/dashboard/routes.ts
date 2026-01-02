@@ -2334,9 +2334,10 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
 
   router.get('/cash-transactions', (req: Request, res: Response) => {
     try {
-      const { type, category, startDate, endDate, installmentId } = req.query;
+      const { unit, type, category, startDate, endDate, installmentId } = req.query;
 
       const transactions = sqliteService.getCashTransactions({
+        unit: unit as string,
         type: type as string,
         category: category as string,
         startDate: startDate as string,
@@ -2366,9 +2367,10 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
 
   router.get('/cash-transactions/summary', (req: Request, res: Response) => {
     try {
-      const { startDate, endDate } = req.query;
+      const { unit, startDate, endDate } = req.query;
 
       const summary = sqliteService.getCashSummary({
+        unit: unit as string,
         startDate: startDate as string,
         endDate: endDate as string,
       });
@@ -2421,10 +2423,15 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
 
   router.post('/cash-transactions', (req: Request, res: Response) => {
     try {
-      const { type, category, description, amount, paymentMethod, date, referenceId, referenceType, installmentId, notes } = req.body;
+      const { unit, type, category, description, amount, paymentMethod, date, referenceId, referenceType, installmentId, notes } = req.body;
 
-      if (!type || !category || !description || amount === undefined || !paymentMethod || !date) {
-        res.status(400).json({ error: 'Campos obrigatórios: type, category, description, amount, paymentMethod, date' });
+      if (!unit || !type || !category || !description || amount === undefined || !paymentMethod || !date) {
+        res.status(400).json({ error: 'Campos obrigatórios: unit, type, category, description, amount, paymentMethod, date' });
+        return;
+      }
+
+      if (!['recreio', 'bangu', 'geral'].includes(unit)) {
+        res.status(400).json({ error: 'unit deve ser: recreio, bangu ou geral' });
         return;
       }
 
@@ -2439,6 +2446,7 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
       }
 
       const transaction = sqliteService.createCashTransaction({
+        unit,
         type,
         category,
         description,
@@ -2471,9 +2479,10 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
         return;
       }
 
-      const { type, category, description, amount, paymentMethod, date, notes } = req.body;
+      const { unit, type, category, description, amount, paymentMethod, date, notes } = req.body;
 
       const updateData: Record<string, unknown> = {};
+      if (unit !== undefined) updateData.unit = unit;
       if (type !== undefined) updateData.type = type;
       if (category !== undefined) updateData.category = category;
       if (description !== undefined) updateData.description = description;
@@ -2525,9 +2534,10 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
 
   router.get('/installments', (req: Request, res: Response) => {
     try {
-      const { status, category } = req.query;
+      const { unit, status, category } = req.query;
 
       const installments = sqliteService.getInstallments({
+        unit: unit as string,
         status: status as string,
         category: category as string,
       });
@@ -2569,10 +2579,15 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
 
   router.post('/installments', (req: Request, res: Response) => {
     try {
-      const { description, totalAmount, installmentCount, category, startDate, notes } = req.body;
+      const { unit, description, totalAmount, installmentCount, category, startDate, notes } = req.body;
 
-      if (!description || totalAmount === undefined || !installmentCount || !category || !startDate) {
-        res.status(400).json({ error: 'Campos obrigatórios: description, totalAmount, installmentCount, category, startDate' });
+      if (!unit || !description || totalAmount === undefined || !installmentCount || !category || !startDate) {
+        res.status(400).json({ error: 'Campos obrigatórios: unit, description, totalAmount, installmentCount, category, startDate' });
+        return;
+      }
+
+      if (!['recreio', 'bangu', 'geral'].includes(unit)) {
+        res.status(400).json({ error: 'unit deve ser: recreio, bangu ou geral' });
         return;
       }
 
@@ -2582,6 +2597,7 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
       }
 
       const installment = sqliteService.createInstallment({
+        unit,
         description,
         totalAmount: Math.round(totalAmount * 100), // Converter para centavos
         installmentCount,
@@ -2611,9 +2627,10 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
         return;
       }
 
-      const { description, totalAmount, installmentCount, category, startDate, status, notes } = req.body;
+      const { unit, description, totalAmount, installmentCount, category, startDate, status, notes } = req.body;
 
       const updateData: Record<string, unknown> = {};
+      if (unit !== undefined) updateData.unit = unit;
       if (description !== undefined) updateData.description = description;
       if (totalAmount !== undefined) updateData.totalAmount = Math.round(totalAmount * 100);
       if (installmentCount !== undefined) updateData.installmentCount = installmentCount;

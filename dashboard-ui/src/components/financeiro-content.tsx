@@ -52,17 +52,21 @@ import {
   Installment,
   CASH_CATEGORIES,
   PAYMENT_METHODS,
+  CASH_UNITS,
 } from "@/lib/api";
+import { Building2 } from "lucide-react";
 
 export default function FinanceiroContent() {
   const [transactions, setTransactions] = useState<CashTransaction[]>([]);
   const [summary, setSummary] = useState<CashSummary | null>(null);
+  const [summaryByUnit, setSummaryByUnit] = useState<Record<string, CashSummary>>({});
   const [installments, setInstallments] = useState<Installment[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
+  const [filterUnit, setFilterUnit] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
@@ -72,6 +76,7 @@ export default function FinanceiroContent() {
   const [selectedInstallment, setSelectedInstallment] = useState<Installment | null>(null);
 
   const [transactionForm, setTransactionForm] = useState({
+    unit: "geral" as "recreio" | "bangu" | "geral",
     type: "income" as "income" | "expense",
     category: "",
     description: "",
@@ -82,10 +87,11 @@ export default function FinanceiroContent() {
   });
 
   const [installmentForm, setInstallmentForm] = useState({
+    unit: "geral" as "recreio" | "bangu" | "geral",
     description: "",
     totalAmount: 0,
     installmentCount: 2,
-    category: "mensalidade",
+    category: "aluguel",
     startDate: new Date().toISOString().split("T")[0],
     notes: "",
   });
@@ -102,14 +108,26 @@ export default function FinanceiroContent() {
       const lastDay = new Date(year!, month!, 0).getDate();
       const endDate = `${selectedMonth}-${String(lastDay).padStart(2, "0")}`;
 
+      const unitFilter = filterUnit !== "all" ? filterUnit : undefined;
+
       const [transactionsData, summaryData, installmentsData] = await Promise.all([
-        getCashTransactions({ startDate, endDate }),
-        getCashSummary({ startDate, endDate }),
-        getInstallments(),
+        getCashTransactions({ unit: unitFilter, startDate, endDate }),
+        getCashSummary({ unit: unitFilter, startDate, endDate }),
+        getInstallments({ unit: unitFilter }),
       ]);
+
+      // Fetch summary for each unit to show separate balances
+      const unitSummaries: Record<string, CashSummary> = {};
+      await Promise.all(
+        CASH_UNITS.map(async (u) => {
+          const unitSum = await getCashSummary({ unit: u.value, startDate, endDate });
+          unitSummaries[u.value] = unitSum;
+        })
+      );
 
       setTransactions(transactionsData.transactions || []);
       setSummary(summaryData);
+      setSummaryByUnit(unitSummaries);
       setInstallments(installmentsData.installments || []);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -120,7 +138,7 @@ export default function FinanceiroContent() {
 
   useEffect(() => {
     fetchData();
-  }, [selectedMonth]);
+  }, [selectedMonth, filterUnit]);
 
   const filteredTransactions = transactions.filter((t) => {
     if (filterType !== "all" && t.type !== filterType) return false;
@@ -214,6 +232,7 @@ export default function FinanceiroContent() {
 
   const resetTransactionForm = () => {
     setTransactionForm({
+      unit: filterUnit !== "all" ? (filterUnit as "recreio" | "bangu" | "geral") : "geral",
       type: "income",
       category: "",
       description: "",
@@ -226,10 +245,11 @@ export default function FinanceiroContent() {
 
   const resetInstallmentForm = () => {
     setInstallmentForm({
+      unit: filterUnit !== "all" ? (filterUnit as "recreio" | "bangu" | "geral") : "geral",
       description: "",
       totalAmount: 0,
       installmentCount: 2,
-      category: "mensalidade",
+      category: "aluguel",
       startDate: new Date().toISOString().split("T")[0],
       notes: "",
     });
@@ -238,6 +258,7 @@ export default function FinanceiroContent() {
   const openEditTransaction = (t: CashTransaction) => {
     setEditingTransaction(t);
     setTransactionForm({
+      unit: t.unit,
       type: t.type,
       category: t.category,
       description: t.description,
@@ -266,6 +287,10 @@ export default function FinanceiroContent() {
 
   const getPaymentMethodLabel = (method: string) => {
     return PAYMENT_METHODS.find((m) => m.value === method)?.label || method;
+  };
+
+  const getUnitLabel = (unit: string) => {
+    return CASH_UNITS.find((u) => u.value === unit)?.label || unit;
   };
 
   const generateMonthOptions = () => {
@@ -324,7 +349,7 @@ export default function FinanceiroContent() {
           </div>
         </div>
 
-        {/* Month Selector */}
+        {/* Month and Unit Selectors */}
         <div className="flex items-center gap-4">
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
             <SelectTrigger className="w-56">
@@ -334,6 +359,20 @@ export default function FinanceiroContent() {
               {generateMonthOptions().map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterUnit} onValueChange={setFilterUnit}>
+            <SelectTrigger className="w-44">
+              <Building2 className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Unidade" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas Unidades</SelectItem>
+              {CASH_UNITS.map((u) => (
+                <SelectItem key={u.value} value={u.value}>
+                  {u.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -389,6 +428,35 @@ export default function FinanceiroContent() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Unit Balances - Only show when viewing all units */}
+        {filterUnit === "all" && (
+          <div className="grid gap-4 md:grid-cols-3">
+            {CASH_UNITS.map((unit) => {
+              const unitSum = summaryByUnit[unit.value];
+              const balance = unitSum?.balance || 0;
+              return (
+                <Card key={unit.value}>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      Caixa {unit.label}
+                    </CardTitle>
+                    <DollarSign className={`h-4 w-4 ${balance >= 0 ? "text-green-500" : "text-red-500"}`} />
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-2xl font-bold ${balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {formatCurrency(balance)}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      +{formatCurrency(unitSum?.totalIncome || 0)} / -{formatCurrency(unitSum?.totalExpense || 0)}
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
 
         <Tabs defaultValue="transactions" className="space-y-4">
           <TabsList>
@@ -454,7 +522,12 @@ export default function FinanceiroContent() {
                           <ArrowDownCircle className="h-5 w-5 text-red-500" />
                         )}
                         <div>
-                          <p className="font-medium">{t.description}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{t.description}</p>
+                            <Badge variant="outline" className="text-xs">
+                              {getUnitLabel(t.unit)}
+                            </Badge>
+                          </div>
                           <p className="text-sm text-muted-foreground">
                             {getCategoryLabel(t.category)} - {getPaymentMethodLabel(t.paymentMethod)}
                           </p>
@@ -510,7 +583,12 @@ export default function FinanceiroContent() {
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between">
                       <div>
-                        <CardTitle className="text-lg">{inst.description}</CardTitle>
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-lg">{inst.description}</CardTitle>
+                          <Badge variant="outline" className="text-xs">
+                            {getUnitLabel(inst.unit)}
+                          </Badge>
+                        </div>
                         <CardDescription>
                           {getCategoryLabel(inst.category)}
                         </CardDescription>
@@ -635,6 +713,29 @@ export default function FinanceiroContent() {
               <DialogDescription>Registre uma entrada ou saida</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Unidade</Label>
+                <Select
+                  value={transactionForm.unit}
+                  onValueChange={(v) =>
+                    setTransactionForm({
+                      ...transactionForm,
+                      unit: v as "recreio" | "bangu" | "geral",
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CASH_UNITS.map((u) => (
+                      <SelectItem key={u.value} value={u.value}>
+                        {u.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Tipo</Label>
@@ -770,12 +871,35 @@ export default function FinanceiroContent() {
         <Dialog open={showInstallmentDialog} onOpenChange={setShowInstallmentDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Novo Parcelamento</DialogTitle>
+              <DialogTitle>Novo Parcelamento de Despesa</DialogTitle>
               <DialogDescription>
-                Crie um parcelamento para receber pagamentos em parcelas
+                Crie um parcelamento para pagar despesas em parcelas
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Unidade</Label>
+                <Select
+                  value={installmentForm.unit}
+                  onValueChange={(v) =>
+                    setInstallmentForm({
+                      ...installmentForm,
+                      unit: v as "recreio" | "bangu" | "geral",
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CASH_UNITS.map((u) => (
+                      <SelectItem key={u.value} value={u.value}>
+                        {u.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <Label>Descricao</Label>
                 <Input
@@ -832,7 +956,7 @@ export default function FinanceiroContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {CASH_CATEGORIES.income.map((c) => (
+                      {CASH_CATEGORIES.expense.map((c) => (
                         <SelectItem key={c.value} value={c.value}>
                           {c.label}
                         </SelectItem>

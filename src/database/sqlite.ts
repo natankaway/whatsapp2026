@@ -284,6 +284,7 @@ export interface CheckinStudentWithBalance extends CheckinStudentRecord {
 
 export interface CashTransactionRecord {
   id?: number;
+  unit: string; // unidade: recreio, bangu, geral
   type: 'income' | 'expense'; // entrada ou saída
   category: string; // ex: mensalidade, aula_avulsa, equipamento, manutenção, etc
   description: string;
@@ -300,6 +301,7 @@ export interface CashTransactionRecord {
 
 interface CashTransactionRecordRaw {
   id: number;
+  unit: string;
   type: string;
   category: string;
   description: string;
@@ -316,6 +318,7 @@ interface CashTransactionRecordRaw {
 
 export interface InstallmentRecord {
   id?: number;
+  unit: string; // unidade: recreio, bangu, geral
   description: string;
   totalAmount: number; // valor total em centavos
   installmentCount: number; // número de parcelas
@@ -330,6 +333,7 @@ export interface InstallmentRecord {
 
 interface InstallmentRecordRaw {
   id: number;
+  unit: string;
   description: string;
   total_amount: number;
   installment_count: number;
@@ -926,6 +930,17 @@ class SQLiteService {
           db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_category ON cash_transactions(category)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_date ON cash_transactions(date)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_installment ON cash_transactions(installment_id)`);
+        },
+      },
+      {
+        name: '013_add_unit_to_cash_tables',
+        up: (db) => {
+          // Adicionar campo unit às tabelas de caixa
+          db.exec(`ALTER TABLE cash_transactions ADD COLUMN unit TEXT NOT NULL DEFAULT 'geral'`);
+          db.exec(`ALTER TABLE installments ADD COLUMN unit TEXT NOT NULL DEFAULT 'geral'`);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_unit ON cash_transactions(unit)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_installments_unit ON installments(unit)`);
         },
       },
     ];
@@ -2994,6 +3009,7 @@ class SQLiteService {
    * Lista transações de caixa com filtros opcionais
    */
   getCashTransactions(filters?: {
+    unit?: string;
     type?: string;
     category?: string;
     startDate?: string;
@@ -3003,13 +3019,18 @@ class SQLiteService {
     if (!this.db) throw new Error('Database not initialized');
 
     let query = `
-      SELECT id, type, category, description, amount, payment_method, date,
+      SELECT id, unit, type, category, description, amount, payment_method, date,
              reference_id, reference_type, installment_id, notes,
              created_at, updated_at
       FROM cash_transactions
       WHERE 1=1
     `;
     const params: unknown[] = [];
+
+    if (filters?.unit) {
+      query += ' AND unit = ?';
+      params.push(filters.unit);
+    }
 
     if (filters?.type) {
       query += ' AND type = ?';
@@ -3043,6 +3064,7 @@ class SQLiteService {
 
     return rows.map(row => ({
       id: row.id,
+      unit: row.unit,
       type: row.type as 'income' | 'expense',
       category: row.category,
       description: row.description,
@@ -3065,7 +3087,7 @@ class SQLiteService {
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
-      SELECT id, type, category, description, amount, payment_method, date,
+      SELECT id, unit, type, category, description, amount, payment_method, date,
              reference_id, reference_type, installment_id, notes,
              created_at, updated_at
       FROM cash_transactions
@@ -3077,6 +3099,7 @@ class SQLiteService {
 
     return {
       id: row.id,
+      unit: row.unit,
       type: row.type as 'income' | 'expense',
       category: row.category,
       description: row.description,
@@ -3101,12 +3124,13 @@ class SQLiteService {
     try {
       const now = new Date().toISOString();
       const stmt = this.db.prepare(`
-        INSERT INTO cash_transactions (type, category, description, amount, payment_method, date,
+        INSERT INTO cash_transactions (unit, type, category, description, amount, payment_method, date,
                                        reference_id, reference_type, installment_id, notes, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
+        data.unit,
         data.type,
         data.category,
         data.description,
@@ -3203,11 +3227,16 @@ class SQLiteService {
   /**
    * Obtém resumo do caixa
    */
-  getCashSummary(filters?: { startDate?: string; endDate?: string }): CashSummary {
+  getCashSummary(filters?: { unit?: string; startDate?: string; endDate?: string }): CashSummary {
     if (!this.db) throw new Error('Database not initialized');
 
     let whereClause = '';
     const params: unknown[] = [];
+
+    if (filters?.unit) {
+      whereClause += ' AND unit = ?';
+      params.push(filters.unit);
+    }
 
     if (filters?.startDate) {
       whereClause += ' AND date >= ?';
@@ -3319,16 +3348,21 @@ class SQLiteService {
   /**
    * Lista parcelamentos com filtros opcionais
    */
-  getInstallments(filters?: { status?: string; category?: string }): InstallmentRecord[] {
+  getInstallments(filters?: { unit?: string; status?: string; category?: string }): InstallmentRecord[] {
     if (!this.db) throw new Error('Database not initialized');
 
     let query = `
-      SELECT id, description, total_amount, installment_count, paid_count,
+      SELECT id, unit, description, total_amount, installment_count, paid_count,
              category, start_date, status, notes, created_at, updated_at
       FROM installments
       WHERE 1=1
     `;
     const params: unknown[] = [];
+
+    if (filters?.unit) {
+      query += ' AND unit = ?';
+      params.push(filters.unit);
+    }
 
     if (filters?.status) {
       query += ' AND status = ?';
@@ -3347,6 +3381,7 @@ class SQLiteService {
 
     return rows.map(row => ({
       id: row.id,
+      unit: row.unit,
       description: row.description,
       totalAmount: row.total_amount,
       installmentCount: row.installment_count,
@@ -3367,7 +3402,7 @@ class SQLiteService {
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
-      SELECT id, description, total_amount, installment_count, paid_count,
+      SELECT id, unit, description, total_amount, installment_count, paid_count,
              category, start_date, status, notes, created_at, updated_at
       FROM installments
       WHERE id = ?
@@ -3378,6 +3413,7 @@ class SQLiteService {
 
     return {
       id: row.id,
+      unit: row.unit,
       description: row.description,
       totalAmount: row.total_amount,
       installmentCount: row.installment_count,
@@ -3400,12 +3436,13 @@ class SQLiteService {
     try {
       const now = new Date().toISOString();
       const stmt = this.db.prepare(`
-        INSERT INTO installments (description, total_amount, installment_count, paid_count,
+        INSERT INTO installments (unit, description, total_amount, installment_count, paid_count,
                                   category, start_date, status, notes, created_at, updated_at)
-        VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
+        data.unit,
         data.description,
         data.totalAmount,
         data.installmentCount,
@@ -3491,7 +3528,7 @@ class SQLiteService {
   }
 
   /**
-   * Registra pagamento de parcela
+   * Registra pagamento de parcela (despesa)
    */
   payInstallment(installmentId: number, paymentMethod: string, notes?: string): CashTransactionRecord | null {
     if (!this.db) throw new Error('Database not initialized');
@@ -3507,9 +3544,10 @@ class SQLiteService {
     const installmentValue = Math.round(installment.totalAmount / installment.installmentCount);
     const currentNumber = installment.paidCount + 1;
 
-    // Criar transação de entrada
+    // Criar transação de saída (despesa) - parcelamentos são pagamentos de despesas
     const transaction = this.createCashTransaction({
-      type: 'income',
+      unit: installment.unit,
+      type: 'expense',
       category: installment.category,
       description: `${installment.description} - Parcela ${currentNumber}/${installment.installmentCount}`,
       amount: installmentValue,

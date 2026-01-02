@@ -691,6 +691,7 @@ export const deleteSentPoll = (id: number) =>
 
 export interface CashTransaction {
   id: number;
+  unit: 'recreio' | 'bangu' | 'geral';
   type: 'income' | 'expense';
   category: string;
   description: string;
@@ -721,6 +722,7 @@ export interface CashMonthlyReport {
 
 export interface Installment {
   id: number;
+  unit: 'recreio' | 'bangu' | 'geral';
   description: string;
   totalAmount: number; // em centavos
   installmentCount: number;
@@ -745,6 +747,7 @@ const extractCashTransactions = (response: { transactions: CashTransaction[] } |
 };
 
 export const getCashTransactions = async (params?: {
+  unit?: string;
   type?: string;
   category?: string;
   startDate?: string;
@@ -752,6 +755,7 @@ export const getCashTransactions = async (params?: {
   installmentId?: number;
 }): Promise<{ transactions: CashTransaction[]; totalIncome: number; totalExpense: number; balance: number }> => {
   const query = new URLSearchParams();
+  if (params?.unit) query.set('unit', params.unit);
   if (params?.type) query.set('type', params.type);
   if (params?.category) query.set('category', params.category);
   if (params?.startDate) query.set('startDate', params.startDate);
@@ -763,8 +767,9 @@ export const getCashTransactions = async (params?: {
 export const getCashTransactionById = (id: number) =>
   fetchApi<CashTransaction>(`/cash-transactions/${id}`);
 
-export const getCashSummary = (params?: { startDate?: string; endDate?: string }) => {
+export const getCashSummary = (params?: { unit?: string; startDate?: string; endDate?: string }) => {
   const query = new URLSearchParams();
+  if (params?.unit) query.set('unit', params.unit);
   if (params?.startDate) query.set('startDate', params.startDate);
   if (params?.endDate) query.set('endDate', params.endDate);
   return fetchApi<CashSummary>(`/cash-transactions/summary?${query}`);
@@ -792,12 +797,13 @@ const extractInstallments = (response: { installments: Installment[] } | Install
   return [];
 };
 
-export const getInstallments = async (params?: { status?: string; category?: string }): Promise<{
+export const getInstallments = async (params?: { unit?: string; status?: string; category?: string }): Promise<{
   installments: Installment[];
   activeCount: number;
   completedCount: number;
 }> => {
   const query = new URLSearchParams();
+  if (params?.unit) query.set('unit', params.unit);
   if (params?.status) query.set('status', params.status);
   if (params?.category) query.set('category', params.category);
   return fetchApi(`/installments?${query}`);
@@ -851,4 +857,10 @@ export const PAYMENT_METHODS = [
   { value: 'cartao', label: 'Cartão' },
   { value: 'transferencia', label: 'Transferência' },
   { value: 'outro', label: 'Outro' },
+];
+
+export const CASH_UNITS = [
+  { value: 'recreio', label: 'Recreio' },
+  { value: 'bangu', label: 'Bangu' },
+  { value: 'geral', label: 'Geral' },
 ];
