@@ -1,6 +1,4 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
-import path from 'path';
-import fs from 'fs';
 import CONFIG from '../config/index.js';
 import logger from '../utils/logger.js';
 import { createDashboardRoutes } from './routes.js';
@@ -46,22 +44,18 @@ class DashboardServer {
     const apiRouter = createDashboardRoutes();
     this.app.use('/api', apiRouter);
 
-    // Servir arquivos estáticos do frontend
-    const publicPath = path.join(process.cwd(), 'public');
-    const indexPath = path.join(publicPath, 'index.html');
+    // Rota raiz - info da API
+    this.app.get('/', (_req: Request, res: Response) => {
+      res.json({
+        name: 'WhatsApp Bot API',
+        version: '3.0.0',
+        dashboard: 'Use npm run dashboard para acessar o painel em http://localhost:3000',
+      });
+    });
 
-    logger.info(`[Dashboard] Pasta public: ${publicPath}`);
-    logger.info(`[Dashboard] index.html existe: ${fs.existsSync(indexPath)}`);
-
-    this.app.use(express.static(publicPath));
-
-    // Fallback para SPA (compatível com Express 5)
+    // Fallback para rotas não encontradas
     this.app.use((_req: Request, res: Response) => {
-      if (!fs.existsSync(indexPath)) {
-        res.status(404).send('Dashboard não encontrado. Verifique se a pasta public/index.html existe.');
-        return;
-      }
-      res.sendFile(indexPath);
+      res.status(404).json({ error: 'Rota não encontrada' });
     });
 
     // Error handler

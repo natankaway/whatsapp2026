@@ -14,8 +14,6 @@ import {
   Play,
   RefreshCw,
   Smartphone,
-  Server,
-  MemoryStick,
   DollarSign,
   Wallet,
   ArrowUpCircle,
@@ -422,55 +420,6 @@ export default function DashboardContent() {
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Reconectar
               </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* System Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5" />
-              Sistema
-            </CardTitle>
-            <CardDescription>
-              Informações do servidor
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MemoryStick className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">Memória</span>
-                </div>
-                <div className="text-right">
-                  <p className="font-medium">
-                    {(status?.system?.memory?.percentUsed ?? 0).toFixed(1)}%
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {Math.round((status?.system?.memory?.heapUsed || 0) / 1024 / 1024)}MB /{" "}
-                    {Math.round((status?.system?.memory?.heapTotal || 0) / 1024 / 1024)}MB
-                  </p>
-                </div>
-              </div>
-              <div className="w-full bg-muted rounded-full h-2">
-                <div
-                  className="bg-primary h-2 rounded-full transition-all"
-                  style={{ width: `${status?.system?.memory?.percentUsed || 0}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
-              <div>
-                <p className="text-sm text-muted-foreground">Plataforma</p>
-                <p className="font-medium">{status?.system?.platform || "-"}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Node.js</p>
-                <p className="font-medium">{status?.system?.nodeVersion || "-"}</p>
-              </div>
             </div>
           </CardContent>
         </Card>
