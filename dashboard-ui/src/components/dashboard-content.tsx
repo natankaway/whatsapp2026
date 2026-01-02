@@ -8,19 +8,16 @@ import {
   Clock,
   Users,
   Calendar,
-  TrendingUp,
-  TrendingDown,
   Pause,
   Play,
   RefreshCw,
   Smartphone,
-  DollarSign,
-  Wallet,
   ArrowUpCircle,
   ArrowDownCircle,
   AlertTriangle,
   CreditCard,
   ChevronRight,
+  Wallet,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,15 +31,11 @@ import {
   resumeBot,
   reconnectBot,
   getQRCode,
-  getCashSummary,
   getCashTransactions,
-  getInstallments,
   BotStatus,
   Booking,
   Student,
-  CashSummary,
   CashTransaction,
-  Installment,
   CASH_UNITS,
 } from "@/lib/api";
 import {
@@ -59,10 +52,7 @@ export default function DashboardContent() {
   const [status, setStatus] = useState<BotStatus | null>(null);
   const [bookingsToday, setBookingsToday] = useState<Booking[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [cashSummary, setCashSummary] = useState<CashSummary | null>(null);
-  const [summaryByUnit, setSummaryByUnit] = useState<Record<string, CashSummary>>({});
   const [recentTransactions, setRecentTransactions] = useState<CashTransaction[]>([]);
-  const [activeInstallments, setActiveInstallments] = useState<Installment[]>([]);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
   const [showPauseDialog, setShowPauseDialog] = useState(false);
@@ -77,41 +67,21 @@ export default function DashboardContent() {
       const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
       const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-      const [statusData, bookingsData, studentsData, summaryData, transactionsData, installmentsData] = await Promise.allSettled([
+      const [statusData, bookingsData, studentsData, transactionsData] = await Promise.allSettled([
         getStatus(),
         getBookingsToday(),
         getStudentsWithStatus(),
-        getCashSummary({ startDate, endDate }),
         getCashTransactions({ startDate, endDate }),
-        getInstallments({ status: "active" }),
       ]);
 
       if (statusData.status === 'fulfilled') setStatus(statusData.value);
       if (bookingsData.status === 'fulfilled') setBookingsToday(Array.isArray(bookingsData.value) ? bookingsData.value : []);
       if (studentsData.status === 'fulfilled') setStudents(Array.isArray(studentsData.value) ? studentsData.value : []);
-      if (summaryData.status === 'fulfilled') setCashSummary(summaryData.value);
       if (transactionsData.status === 'fulfilled') {
         const txs = transactionsData.value.transactions || [];
         // Get last 5 transactions
         setRecentTransactions(txs.slice(0, 5));
       }
-      if (installmentsData.status === 'fulfilled') {
-        setActiveInstallments(installmentsData.value.installments || []);
-      }
-
-      // Fetch summary per unit
-      const unitSummaries: Record<string, CashSummary> = {};
-      await Promise.all(
-        CASH_UNITS.map(async (u) => {
-          try {
-            const unitSum = await getCashSummary({ unit: u.value, startDate, endDate });
-            unitSummaries[u.value] = unitSum;
-          } catch {
-            // Ignore errors for individual units
-          }
-        })
-      );
-      setSummaryByUnit(unitSummaries);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -266,93 +236,6 @@ export default function DashboardContent() {
             </p>
           </CardContent>
         </Card>
-      </div>
-
-      {/* Financial Summary */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Entradas do Mes</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(cashSummary?.totalIncome || 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Saidas do Mes</CardTitle>
-            <TrendingDown className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              {formatCurrency(cashSummary?.totalExpense || 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {activeInstallments.length} parcelamentos ativos
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Saldo do Mes</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${(cashSummary?.balance || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
-              {formatCurrency(cashSummary?.balance || 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Receita - Despesas
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Receita Prevista</CardTitle>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {formatCurrency(activeStudents.reduce((sum, s) => sum + s.planValue, 0))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {activeStudents.length} alunos ativos
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Unit Balances */}
-      <div className="grid gap-4 md:grid-cols-3 mb-6">
-        {CASH_UNITS.map((unit) => {
-          const unitSum = summaryByUnit[unit.value];
-          const balance = unitSum?.balance || 0;
-          return (
-            <Card key={unit.value}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Caixa {unit.label}</CardTitle>
-                <DollarSign className={`h-4 w-4 ${balance >= 0 ? "text-green-500" : "text-red-500"}`} />
-              </CardHeader>
-              <CardContent>
-                <div className={`text-xl font-bold ${balance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                  {formatCurrency(balance)}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  +{formatCurrency(unitSum?.totalIncome || 0)} / -{formatCurrency(unitSum?.totalExpense || 0)}
-                </p>
-              </CardContent>
-            </Card>
-          );
-        })}
       </div>
 
       {/* Main Content Grid */}
