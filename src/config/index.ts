@@ -186,7 +186,7 @@ Digite o número da opção ou *MENU* para ver novamente.
 
   dashboard: {
     enabled: process.env.DASHBOARD_ENABLED !== 'false',
-    port: parseInt(process.env.DASHBOARD_PORT ?? '3000', 10),
+    port: parseInt(process.env.DASHBOARD_PORT ?? '3001', 10),
     username: process.env.DASHBOARD_USERNAME ?? 'admin',
     password: process.env.DASHBOARD_PASSWORD ?? 'admin123',
   },

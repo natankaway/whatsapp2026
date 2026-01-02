@@ -49,7 +49,7 @@ class DashboardServer {
       res.json({
         name: 'WhatsApp Bot API',
         version: '3.0.0',
-        dashboard: 'Use npm run dashboard para acessar o painel em http://localhost:3000',
+        dashboard: 'Acesse o painel em http://localhost:3000',
       });
     });
 
