@@ -76,6 +76,7 @@ export interface PollScheduleRecord {
   id?: number;
   name: string;
   description?: string;
+  pollTitle?: string; // título customizado da enquete (se vazio, usa nome automático)
   targetGroup: 'recreio' | 'bangu' | 'custom';
   customGroupId?: string;
   dayOfWeek: string; // dia da semana para nome da enquete (segunda, terca, etc)
@@ -93,6 +94,7 @@ interface PollScheduleRecordRaw {
   id: number;
   name: string;
   description: string | null;
+  pollTitle: string | null;
   targetGroup: string;
   customGroupId: string | null;
   dayOfWeek: string;
@@ -980,6 +982,13 @@ class SQLiteService {
           db.exec(`CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC)`);
         },
       },
+      {
+        name: '015_add_poll_title_to_poll_schedules',
+        up: (db) => {
+          // Adiciona campo poll_title para título customizado da enquete
+          db.exec(`ALTER TABLE poll_schedules ADD COLUMN poll_title TEXT`);
+        },
+      },
     ];
   }
 
@@ -1835,7 +1844,7 @@ class SQLiteService {
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
-      SELECT id, name, description, target_group as targetGroup, custom_group_id as customGroupId,
+      SELECT id, name, description, poll_title as pollTitle, target_group as targetGroup, custom_group_id as customGroupId,
              day_of_week as dayOfWeek, poll_options as pollOptions, schedule_hour as scheduleHour,
              schedule_minute as scheduleMinute, schedule_days as scheduleDays, is_active as isActive,
              last_executed_at as lastExecutedAt, created_at as createdAt, updated_at as updatedAt
@@ -1851,7 +1860,7 @@ class SQLiteService {
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
-      SELECT id, name, description, target_group as targetGroup, custom_group_id as customGroupId,
+      SELECT id, name, description, poll_title as pollTitle, target_group as targetGroup, custom_group_id as customGroupId,
              day_of_week as dayOfWeek, poll_options as pollOptions, schedule_hour as scheduleHour,
              schedule_minute as scheduleMinute, schedule_days as scheduleDays, is_active as isActive,
              last_executed_at as lastExecutedAt, created_at as createdAt, updated_at as updatedAt
@@ -1868,7 +1877,7 @@ class SQLiteService {
     if (!this.db) throw new Error('Database not initialized');
 
     const stmt = this.db.prepare(`
-      SELECT id, name, description, target_group as targetGroup, custom_group_id as customGroupId,
+      SELECT id, name, description, poll_title as pollTitle, target_group as targetGroup, custom_group_id as customGroupId,
              day_of_week as dayOfWeek, poll_options as pollOptions, schedule_hour as scheduleHour,
              schedule_minute as scheduleMinute, schedule_days as scheduleDays, is_active as isActive,
              last_executed_at as lastExecutedAt, created_at as createdAt, updated_at as updatedAt
@@ -1886,15 +1895,16 @@ class SQLiteService {
     try {
       const now = new Date().toISOString();
       const stmt = this.db.prepare(`
-        INSERT INTO poll_schedules (name, description, target_group, custom_group_id, day_of_week,
+        INSERT INTO poll_schedules (name, description, poll_title, target_group, custom_group_id, day_of_week,
                                    poll_options, schedule_hour, schedule_minute, schedule_days,
                                    is_active, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
         schedule.name,
         schedule.description ?? null,
+        schedule.pollTitle ?? null,
         schedule.targetGroup,
         schedule.customGroupId ?? null,
         schedule.dayOfWeek,
@@ -1928,6 +1938,7 @@ class SQLiteService {
 
       if (schedule.name !== undefined) { updates.push('name = ?'); values.push(schedule.name); }
       if (schedule.description !== undefined) { updates.push('description = ?'); values.push(schedule.description); }
+      if (schedule.pollTitle !== undefined) { updates.push('poll_title = ?'); values.push(schedule.pollTitle); }
       if (schedule.targetGroup !== undefined) { updates.push('target_group = ?'); values.push(schedule.targetGroup); }
       if (schedule.customGroupId !== undefined) { updates.push('custom_group_id = ?'); values.push(schedule.customGroupId); }
       if (schedule.dayOfWeek !== undefined) { updates.push('day_of_week = ?'); values.push(schedule.dayOfWeek); }
@@ -1983,6 +1994,7 @@ class SQLiteService {
       id: row.id,
       name: row.name,
       description: row.description ?? undefined,
+      pollTitle: row.pollTitle ?? undefined,
       targetGroup: row.targetGroup as 'recreio' | 'bangu' | 'custom',
       customGroupId: row.customGroupId ?? undefined,
       dayOfWeek: row.dayOfWeek,

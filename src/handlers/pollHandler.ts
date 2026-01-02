@@ -439,9 +439,12 @@ class PollHandler {
       return false;
     }
 
-    const pollName = this.getPollNameForDay(pollSchedule.dayOfWeek);
+    // Usa pollTitle customizado se definido, senão usa nome automático
+    const pollName = pollSchedule.pollTitle && pollSchedule.pollTitle.trim()
+      ? pollSchedule.pollTitle
+      : this.getPollNameForDay(pollSchedule.dayOfWeek);
 
-    logger.info(`[POLL] Executando agendamento #${scheduleId}: ${pollSchedule.name}`);
+    logger.info(`[POLL] Executando agendamento #${scheduleId}: ${pollSchedule.name} (título: ${pollName})`);
 
     // autoPin: true - fixa automaticamente por 24 horas
     const result = await this.createPoll(groupId, pollName, pollSchedule.pollOptions, scheduleId, undefined, true);
@@ -510,7 +513,10 @@ class PollHandler {
           return;
         }
 
-        const pollName = this.getPollNameForDay(pollSchedule.dayOfWeek);
+        // Usa pollTitle customizado se definido, senão usa nome automático
+        const pollName = pollSchedule.pollTitle && pollSchedule.pollTitle.trim()
+          ? pollSchedule.pollTitle
+          : this.getPollNameForDay(pollSchedule.dayOfWeek);
 
         await this.executeScheduledPoll(
           `Executando enquete automática: ${pollSchedule.name}`,

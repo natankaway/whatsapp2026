@@ -56,6 +56,27 @@ import {
 } from "@/lib/api";
 import { Building2 } from "lucide-react";
 
+// Format currency input - only allows numbers and formats as currency
+const formatCurrencyInput = (value: string): string => {
+  // Remove tudo que não é dígito
+  const numbers = value.replace(/\D/g, "");
+  // Converte para número (centavos)
+  const cents = parseInt(numbers || "0", 10);
+  // Formata como moeda
+  const formatted = (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return formatted;
+};
+
+// Parse formatted currency to number
+const parseCurrencyInput = (value: string): number => {
+  // Remove pontos de milhar e troca vírgula por ponto
+  const cleaned = value.replace(/\./g, "").replace(",", ".");
+  return parseFloat(cleaned) || 0;
+};
+
 export default function FinanceiroContent() {
   const [transactions, setTransactions] = useState<CashTransaction[]>([]);
   const [summary, setSummary] = useState<CashSummary | null>(null);
@@ -74,6 +95,10 @@ export default function FinanceiroContent() {
   const [showPayInstallmentDialog, setShowPayInstallmentDialog] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
   const [selectedInstallment, setSelectedInstallment] = useState<Installment | null>(null);
+
+  // Estados para valores formatados
+  const [transactionAmountDisplay, setTransactionAmountDisplay] = useState("0,00");
+  const [installmentAmountDisplay, setInstallmentAmountDisplay] = useState("0,00");
 
   const [transactionForm, setTransactionForm] = useState({
     unit: "geral" as "recreio" | "bangu" | "geral",
@@ -241,6 +266,7 @@ export default function FinanceiroContent() {
       date: new Date().toISOString().split("T")[0],
       notes: "",
     });
+    setTransactionAmountDisplay("0,00");
   };
 
   const resetInstallmentForm = () => {
@@ -253,20 +279,23 @@ export default function FinanceiroContent() {
       startDate: new Date().toISOString().split("T")[0],
       notes: "",
     });
+    setInstallmentAmountDisplay("0,00");
   };
 
   const openEditTransaction = (t: CashTransaction) => {
     setEditingTransaction(t);
+    const amountInReais = t.amount / 100;
     setTransactionForm({
       unit: t.unit,
       type: t.type,
       category: t.category,
       description: t.description,
-      amount: t.amount / 100,
+      amount: amountInReais,
       paymentMethod: t.paymentMethod,
       date: t.date,
       notes: t.notes || "",
     });
+    setTransactionAmountDisplay(amountInReais.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     setShowTransactionDialog(true);
   };
 
@@ -808,16 +837,17 @@ export default function FinanceiroContent() {
                 <div className="space-y-2">
                   <Label>Valor (R$)</Label>
                   <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={transactionForm.amount || ""}
-                    onChange={(e) =>
+                    type="text"
+                    inputMode="numeric"
+                    value={transactionAmountDisplay}
+                    onChange={(e) => {
+                      const formatted = formatCurrencyInput(e.target.value);
+                      setTransactionAmountDisplay(formatted);
                       setTransactionForm({
                         ...transactionForm,
-                        amount: parseFloat(e.target.value) || 0,
-                      })
-                    }
+                        amount: parseCurrencyInput(formatted),
+                      });
+                    }}
                     placeholder="0,00"
                   />
                 </div>
@@ -919,16 +949,17 @@ export default function FinanceiroContent() {
                 <div className="space-y-2">
                   <Label>Valor Total (R$)</Label>
                   <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={installmentForm.totalAmount || ""}
-                    onChange={(e) =>
+                    type="text"
+                    inputMode="numeric"
+                    value={installmentAmountDisplay}
+                    onChange={(e) => {
+                      const formatted = formatCurrencyInput(e.target.value);
+                      setInstallmentAmountDisplay(formatted);
                       setInstallmentForm({
                         ...installmentForm,
-                        totalAmount: parseFloat(e.target.value) || 0,
-                      })
-                    }
+                        totalAmount: parseCurrencyInput(formatted),
+                      });
+                    }}
                     placeholder="0,00"
                   />
                 </div>

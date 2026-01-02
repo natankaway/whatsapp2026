@@ -51,6 +51,15 @@ import {
   WeekDay,
 } from "@/lib/api";
 
+// Format phone number as (XX) XXXXX-XXXX
+const formatPhone = (value: string): string => {
+  const numbers = value.replace(/\D/g, "");
+  if (numbers.length <= 2) return numbers;
+  if (numbers.length <= 7) return `(${numbers.slice(0, 2)}) ${numbers.slice(2)}`;
+  if (numbers.length <= 11) return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7)}`;
+  return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7, 11)}`;
+};
+
 export default function AgendamentosContent() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [weekData, setWeekData] = useState<{ days: WeekDay[]; totalSemana: number } | null>(null);
@@ -508,7 +517,8 @@ export default function AgendamentosContent() {
                 id="phone"
                 placeholder="(21) 99999-9999"
                 value={newBooking.phone}
-                onChange={(e) => setNewBooking((prev) => ({ ...prev, phone: e.target.value }))}
+                onChange={(e) => setNewBooking((prev) => ({ ...prev, phone: formatPhone(e.target.value) }))}
+                maxLength={16}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">

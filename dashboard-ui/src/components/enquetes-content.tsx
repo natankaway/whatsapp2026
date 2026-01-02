@@ -65,6 +65,7 @@ const DAYS_OF_WEEK = [
 
 const DEFAULT_POLL: Omit<PollSchedule, "id"> = {
   name: "",
+  pollTitle: "",
   targetGroup: "recreio",
   time: "08:00",
   dayOfWeek: "",
@@ -196,6 +197,7 @@ export default function EnquetesContent() {
     setEditingSchedule(schedule);
     setFormData({
       name: schedule.name,
+      pollTitle: schedule.pollTitle || "",
       targetGroup: schedule.targetGroup,
       customGroupId: schedule.customGroupId,
       time: schedule.time,
@@ -642,6 +644,22 @@ export default function EnquetesContent() {
                 value={formData.name}
                 onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
               />
+              <p className="text-xs text-muted-foreground">
+                Nome para identificação no painel
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="pollTitle">Título da Enquete (enviado no WhatsApp)</Label>
+              <Input
+                id="pollTitle"
+                placeholder="Ex: Sexta de treino ⚡"
+                value={formData.pollTitle || ""}
+                onChange={(e) => setFormData((prev) => ({ ...prev, pollTitle: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Se vazio, usará nome automático baseado no dia da semana (ex: "Segunda de Beach ⚡")
+              </p>
             </div>
 
             <div className="space-y-2">

@@ -124,6 +124,7 @@ export interface PollScheduleBackend {
   id: number;
   name: string;
   description?: string;
+  pollTitle?: string;
   targetGroup: string;
   customGroupId?: string;
   dayOfWeek: string;
@@ -141,6 +142,7 @@ export interface PollScheduleBackend {
 export interface PollSchedule {
   id: number;
   name: string;
+  pollTitle?: string;
   targetGroup: string;
   customGroupId?: string;
   time: string;
@@ -166,6 +168,7 @@ const convertToFrontendFormat = (backend: PollScheduleBackend): PollSchedule => 
   return {
     id: backend.id,
     name: backend.name,
+    pollTitle: backend.pollTitle,
     targetGroup: backend.targetGroup,
     customGroupId: backend.customGroupId,
     time: `${hour}:${minute}`,
@@ -197,6 +200,7 @@ const convertToBackendFormat = (frontend: Omit<PollSchedule, 'id'>): Omit<PollSc
 
   return {
     name: frontend.name,
+    pollTitle: frontend.pollTitle,
     targetGroup: frontend.targetGroup,
     customGroupId: frontend.customGroupId,
     dayOfWeek: frontend.dayOfWeek,
