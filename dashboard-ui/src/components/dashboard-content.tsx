@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Wifi,
   WifiOff,
@@ -8,12 +9,20 @@ import {
   Users,
   Calendar,
   TrendingUp,
+  TrendingDown,
   Pause,
   Play,
   RefreshCw,
   Smartphone,
   Server,
   MemoryStick,
+  DollarSign,
+  Wallet,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  AlertTriangle,
+  CreditCard,
+  ChevronRight,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,9 +36,16 @@ import {
   resumeBot,
   reconnectBot,
   getQRCode,
+  getCashSummary,
+  getCashTransactions,
+  getInstallments,
   BotStatus,
   Booking,
   Student,
+  CashSummary,
+  CashTransaction,
+  Installment,
+  CASH_UNITS,
 } from "@/lib/api";
 import {
   Dialog,
@@ -45,6 +61,10 @@ export default function DashboardContent() {
   const [status, setStatus] = useState<BotStatus | null>(null);
   const [bookingsToday, setBookingsToday] = useState<Booking[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [cashSummary, setCashSummary] = useState<CashSummary | null>(null);
+  const [summaryByUnit, setSummaryByUnit] = useState<Record<string, CashSummary>>({});
+  const [recentTransactions, setRecentTransactions] = useState<CashTransaction[]>([]);
+  const [activeInstallments, setActiveInstallments] = useState<Installment[]>([]);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
   const [showPauseDialog, setShowPauseDialog] = useState(false);
@@ -53,15 +73,47 @@ export default function DashboardContent() {
 
   const fetchData = async () => {
     try {
-      const [statusData, bookingsData, studentsData] = await Promise.allSettled([
+      // Get current month date range
+      const now = new Date();
+      const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+      const [statusData, bookingsData, studentsData, summaryData, transactionsData, installmentsData] = await Promise.allSettled([
         getStatus(),
         getBookingsToday(),
         getStudentsWithStatus(),
+        getCashSummary({ startDate, endDate }),
+        getCashTransactions({ startDate, endDate }),
+        getInstallments({ status: "active" }),
       ]);
 
       if (statusData.status === 'fulfilled') setStatus(statusData.value);
       if (bookingsData.status === 'fulfilled') setBookingsToday(Array.isArray(bookingsData.value) ? bookingsData.value : []);
       if (studentsData.status === 'fulfilled') setStudents(Array.isArray(studentsData.value) ? studentsData.value : []);
+      if (summaryData.status === 'fulfilled') setCashSummary(summaryData.value);
+      if (transactionsData.status === 'fulfilled') {
+        const txs = transactionsData.value.transactions || [];
+        // Get last 5 transactions
+        setRecentTransactions(txs.slice(0, 5));
+      }
+      if (installmentsData.status === 'fulfilled') {
+        setActiveInstallments(installmentsData.value.installments || []);
+      }
+
+      // Fetch summary per unit
+      const unitSummaries: Record<string, CashSummary> = {};
+      await Promise.all(
+        CASH_UNITS.map(async (u) => {
+          try {
+            const unitSum = await getCashSummary({ unit: u.value, startDate, endDate });
+            unitSummaries[u.value] = unitSum;
+          } catch {
+            // Ignore errors for individual units
+          }
+        })
+      );
+      setSummaryByUnit(unitSummaries);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -112,6 +164,29 @@ export default function DashboardContent() {
 
   const overdueStudents = students.filter((s) => s.isOverdue);
   const activeStudents = students.filter((s) => s.status === "active");
+
+  // Students with upcoming due dates (next 7 days)
+  const upcomingDueStudents = students.filter((s) => {
+    if (s.status !== "active" || s.isOverdue) return false;
+    const today = new Date();
+    const dueDate = new Date(today.getFullYear(), today.getMonth(), s.dueDay);
+    if (dueDate < today) {
+      dueDate.setMonth(dueDate.getMonth() + 1);
+    }
+    const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return daysUntilDue <= 7 && daysUntilDue >= 0;
+  });
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(value / 100);
+  };
+
+  const getUnitLabel = (unit: string) => {
+    return CASH_UNITS.find((u) => u.value === unit)?.label || unit;
+  };
 
   if (loading) {
     return (
@@ -193,6 +268,93 @@ export default function DashboardContent() {
             </p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Financial Summary */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Entradas do Mes</CardTitle>
+            <TrendingUp className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {formatCurrency(cashSummary?.totalIncome || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Saidas do Mes</CardTitle>
+            <TrendingDown className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">
+              {formatCurrency(cashSummary?.totalExpense || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {activeInstallments.length} parcelamentos ativos
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Saldo do Mes</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${(cashSummary?.balance || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {formatCurrency(cashSummary?.balance || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Receita - Despesas
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Receita Prevista</CardTitle>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {formatCurrency(activeStudents.reduce((sum, s) => sum + s.planValue, 0))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {activeStudents.length} alunos ativos
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Unit Balances */}
+      <div className="grid gap-4 md:grid-cols-3 mb-6">
+        {CASH_UNITS.map((unit) => {
+          const unitSum = summaryByUnit[unit.value];
+          const balance = unitSum?.balance || 0;
+          return (
+            <Card key={unit.value}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Caixa {unit.label}</CardTitle>
+                <DollarSign className={`h-4 w-4 ${balance >= 0 ? "text-green-500" : "text-red-500"}`} />
+              </CardHeader>
+              <CardContent>
+                <div className={`text-xl font-bold ${balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  {formatCurrency(balance)}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  +{formatCurrency(unitSum?.totalIncome || 0)} / -{formatCurrency(unitSum?.totalExpense || 0)}
+                </p>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Main Content Grid */}
@@ -317,7 +479,7 @@ export default function DashboardContent() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
+              <Calendar className="h-5 w-5" />
               Aulas de Hoje
             </CardTitle>
             <CardDescription>
@@ -363,6 +525,138 @@ export default function DashboardContent() {
                     </Badge>
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent Transactions */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Wallet className="h-5 w-5" />
+                Ultimas Transacoes
+              </CardTitle>
+              <CardDescription>Movimentacoes recentes</CardDescription>
+            </div>
+            <Link href="/financeiro">
+              <Button variant="ghost" size="sm">
+                Ver todas
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            {recentTransactions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                Nenhuma transacao este mes
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentTransactions.map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex items-center justify-between p-2 rounded-lg bg-muted/50"
+                  >
+                    <div className="flex items-center gap-2">
+                      {t.type === "income" ? (
+                        <ArrowUpCircle className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <ArrowDownCircle className="h-4 w-4 text-red-500" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium">{t.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {getUnitLabel(t.unit)} - {new Date(t.date).toLocaleDateString("pt-BR")}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`font-medium ${t.type === "income" ? "text-green-600" : "text-red-600"}`}>
+                      {t.type === "income" ? "+" : "-"}{formatCurrency(t.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Upcoming Due Payments & Overdue */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5" />
+                Vencimentos
+              </CardTitle>
+              <CardDescription>Proximos 7 dias e inadimplentes</CardDescription>
+            </div>
+            <Link href="/mensalidades">
+              <Button variant="ghost" size="sm">
+                Ver todos
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            {overdueStudents.length === 0 && upcomingDueStudents.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                Nenhum vencimento proximo
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Overdue first */}
+                {overdueStudents.slice(0, 3).map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between p-2 rounded-lg bg-red-500/10 border border-red-500/20"
+                  >
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-red-500" />
+                      <div>
+                        <p className="text-sm font-medium">{s.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {s.unit === "recreio" ? "Recreio" : "Bangu"} - {s.daysOverdue} dias em atraso
+                        </p>
+                      </div>
+                    </div>
+                    <span className="font-medium text-red-600">
+                      {formatCurrency(s.planValue)}
+                    </span>
+                  </div>
+                ))}
+                {/* Upcoming */}
+                {upcomingDueStudents.slice(0, 3).map((s) => {
+                  const today = new Date();
+                  const dueDate = new Date(today.getFullYear(), today.getMonth(), s.dueDay);
+                  if (dueDate < today) dueDate.setMonth(dueDate.getMonth() + 1);
+                  const daysUntil = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                  return (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between p-2 rounded-lg bg-muted/50"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">{s.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {s.unit === "recreio" ? "Recreio" : "Bangu"} - vence em {daysUntil} dias
+                          </p>
+                        </div>
+                      </div>
+                      <span className="font-medium">
+                        {formatCurrency(s.planValue)}
+                      </span>
+                    </div>
+                  );
+                })}
+                {(overdueStudents.length > 3 || upcomingDueStudents.length > 3) && (
+                  <p className="text-xs text-center text-muted-foreground pt-2">
+                    + {Math.max(0, overdueStudents.length - 3) + Math.max(0, upcomingDueStudents.length - 3)} outros
+                  </p>
+                )}
               </div>
             )}
           </CardContent>
