@@ -282,6 +282,59 @@ export interface MonthlyReport {
   payments: Payment[];
 }
 
+// Interface para aluno unificado
+export interface UnifiedStudent {
+  id: number;
+  name: string;
+  phone: string;
+  email?: string;
+  birthDate?: string;
+  unit: 'recreio' | 'bangu';
+  paymentType: 'mensalidade' | 'plataforma';
+  // Campos para mensalidade
+  plan?: string;
+  planValue?: number; // em centavos
+  dueDay?: number;
+  startDate?: string;
+  // Campos para plataforma
+  platform?: 'wellhub' | 'totalpass' | 'gurupass';
+  balance?: number;
+  // Campos comuns
+  status: 'active' | 'inactive' | 'suspended';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UnifiedStudentSummary {
+  total: number;
+  mensalidade: number;
+  plataforma: number;
+  active: number;
+  inactive: number;
+  byUnit: { recreio: number; bangu: number };
+}
+
+// Constantes para alunos
+export const PLATFORMS = [
+  { value: 'wellhub', label: 'Wellhub (Gympass)' },
+  { value: 'totalpass', label: 'TotalPass' },
+  { value: 'gurupass', label: 'GuruPass' },
+] as const;
+
+export const PLANS = [
+  { value: '1x', label: '1x por semana' },
+  { value: '2x', label: '2x por semana' },
+  { value: '3x', label: '3x por semana' },
+  { value: '5x', label: '5x por semana' },
+  { value: 'livre', label: 'Livre' },
+] as const;
+
+export const PAYMENT_TYPES = [
+  { value: 'mensalidade', label: 'Mensalidade' },
+  { value: 'plataforma', label: 'Plataforma (Wellhub, TotalPass, etc.)' },
+] as const;
+
 // ============= API Functions =============
 
 // Status
@@ -927,3 +980,36 @@ export const deleteNotification = (id: number) =>
 
 export const deleteOldNotifications = (days: number = 30) =>
   fetchApi<{ success: boolean; message: string }>(`/notifications/old?days=${days}`, { method: 'DELETE' });
+
+// Unified Students
+export const getUnifiedStudents = async (params?: { unit?: string; paymentType?: string; status?: string; search?: string }): Promise<UnifiedStudent[]> => {
+  const query = new URLSearchParams();
+  if (params?.unit) query.set('unit', params.unit);
+  if (params?.paymentType) query.set('paymentType', params.paymentType);
+  if (params?.status) query.set('status', params.status);
+  if (params?.search) query.set('search', params.search);
+  const response = await fetchApi<{ students: UnifiedStudent[] } | UnifiedStudent[]>(`/unified-students?${query}`);
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'students' in response) {
+    return response.students || [];
+  }
+  return [];
+};
+
+export const getUnifiedStudentsSummary = () =>
+  fetchApi<UnifiedStudentSummary>('/unified-students/summary');
+
+export const getUnifiedStudentById = (id: number) =>
+  fetchApi<UnifiedStudent>(`/unified-students/${id}`);
+
+export const createUnifiedStudent = (data: Omit<UnifiedStudent, 'id' | 'createdAt' | 'updatedAt'>) =>
+  fetchApi<UnifiedStudent>('/unified-students', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateUnifiedStudent = (id: number, data: Partial<UnifiedStudent>) =>
+  fetchApi<UnifiedStudent>(`/unified-students/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+
+export const deleteUnifiedStudent = (id: number) =>
+  fetchApi<{ success: boolean; message: string }>(`/unified-students/${id}`, { method: 'DELETE' });
+
+export const updateUnifiedStudentBalance = (id: number, amount: number) =>
+  fetchApi<UnifiedStudent>(`/unified-students/${id}/balance`, { method: 'POST', body: JSON.stringify({ amount }) });

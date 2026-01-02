@@ -281,6 +281,53 @@ export interface CheckinStudentWithBalance extends CheckinStudentRecord {
 }
 
 // =============================================================================
+// INTERFACES PARA ALUNOS UNIFICADOS
+// =============================================================================
+
+export interface UnifiedStudentRecord {
+  id?: number;
+  name: string;
+  phone: string;
+  email?: string;
+  birthDate?: string; // YYYY-MM-DD
+  unit: 'recreio' | 'bangu';
+  paymentType: 'mensalidade' | 'plataforma';
+  // Campos para mensalidade
+  plan?: string; // ex: "1x", "2x", "3x", "5x"
+  planValue?: number; // valor em centavos
+  dueDay?: number; // dia do vencimento (1-31)
+  startDate?: string; // data de inicio
+  // Campos para plataforma
+  platform?: 'wellhub' | 'totalpass' | 'gurupass';
+  balance?: number; // saldo de check-ins
+  // Campos comuns
+  status: 'active' | 'inactive' | 'suspended';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UnifiedStudentRecordRaw {
+  id: number;
+  name: string;
+  phone: string;
+  email: string | null;
+  birthDate: string | null;
+  unit: string;
+  paymentType: string;
+  plan: string | null;
+  planValue: number | null;
+  dueDay: number | null;
+  startDate: string | null;
+  platform: string | null;
+  balance: number | null;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// =============================================================================
 // INTERFACES PARA CONTROLE FINANCEIRO (CAIXA)
 // =============================================================================
 
@@ -987,6 +1034,38 @@ class SQLiteService {
         up: (db) => {
           // Adiciona campo poll_title para título customizado da enquete
           db.exec(`ALTER TABLE poll_schedules ADD COLUMN poll_title TEXT`);
+        },
+      },
+      {
+        name: '016_create_unified_students_table',
+        up: (db) => {
+          // Tabela unificada de alunos
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS unified_students (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              email TEXT,
+              birth_date TEXT,
+              unit TEXT NOT NULL CHECK(unit IN ('recreio', 'bangu')),
+              payment_type TEXT NOT NULL CHECK(payment_type IN ('mensalidade', 'plataforma')),
+              plan TEXT,
+              plan_value INTEGER,
+              due_day INTEGER,
+              start_date TEXT,
+              platform TEXT CHECK(platform IN ('wellhub', 'totalpass', 'gurupass')),
+              balance INTEGER DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive', 'suspended')),
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_unified_students_unit ON unified_students(unit)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_unified_students_payment_type ON unified_students(payment_type)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_unified_students_status ON unified_students(status)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_unified_students_phone ON unified_students(phone)`);
         },
       },
     ];
@@ -3821,6 +3900,248 @@ class SQLiteService {
     `);
     const result = stmt.run(daysOld);
     return result.changes;
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE ALUNOS UNIFICADOS
+  // ===========================================================================
+
+  getUnifiedStudents(filters?: { unit?: string; paymentType?: string; status?: string; search?: string }): UnifiedStudentRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let query = `
+      SELECT id, name, phone, email, birth_date as birthDate, unit, payment_type as paymentType,
+             plan, plan_value as planValue, due_day as dueDay, start_date as startDate,
+             platform, balance, status, notes, created_at as createdAt, updated_at as updatedAt
+      FROM unified_students
+      WHERE 1=1
+    `;
+    const values: unknown[] = [];
+
+    if (filters?.unit) {
+      query += ' AND unit = ?';
+      values.push(filters.unit);
+    }
+    if (filters?.paymentType) {
+      query += ' AND payment_type = ?';
+      values.push(filters.paymentType);
+    }
+    if (filters?.status) {
+      query += ' AND status = ?';
+      values.push(filters.status);
+    }
+    if (filters?.search) {
+      query += ' AND (name LIKE ? OR phone LIKE ?)';
+      values.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
+
+    query += ' ORDER BY name ASC';
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...values) as UnifiedStudentRecordRaw[];
+    return rows.map(this.parseUnifiedStudentRow);
+  }
+
+  getUnifiedStudentById(id: number): UnifiedStudentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, name, phone, email, birth_date as birthDate, unit, payment_type as paymentType,
+             plan, plan_value as planValue, due_day as dueDay, start_date as startDate,
+             platform, balance, status, notes, created_at as createdAt, updated_at as updatedAt
+      FROM unified_students WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as UnifiedStudentRecordRaw | undefined;
+    return row ? this.parseUnifiedStudentRow(row) : null;
+  }
+
+  getUnifiedStudentByPhone(phone: string): UnifiedStudentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const normalizedPhone = phone.replace(/\D/g, '');
+    const stmt = this.db.prepare(`
+      SELECT id, name, phone, email, birth_date as birthDate, unit, payment_type as paymentType,
+             plan, plan_value as planValue, due_day as dueDay, start_date as startDate,
+             platform, balance, status, notes, created_at as createdAt, updated_at as updatedAt
+      FROM unified_students WHERE REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') LIKE ?
+    `);
+
+    const row = stmt.get(`%${normalizedPhone}%`) as UnifiedStudentRecordRaw | undefined;
+    return row ? this.parseUnifiedStudentRow(row) : null;
+  }
+
+  createUnifiedStudent(student: Omit<UnifiedStudentRecord, 'id' | 'createdAt' | 'updatedAt'>): UnifiedStudentRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(`
+        INSERT INTO unified_students (name, phone, email, birth_date, unit, payment_type,
+                                      plan, plan_value, due_day, start_date,
+                                      platform, balance, status, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        student.name,
+        student.phone,
+        student.email ?? null,
+        student.birthDate ?? null,
+        student.unit,
+        student.paymentType,
+        student.plan ?? null,
+        student.planValue ?? null,
+        student.dueDay ?? null,
+        student.startDate ?? null,
+        student.platform ?? null,
+        student.balance ?? 0,
+        student.status,
+        student.notes ?? null,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...student,
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar aluno unificado', error);
+      return null;
+    }
+  }
+
+  updateUnifiedStudent(id: number, student: Partial<Omit<UnifiedStudentRecord, 'id' | 'createdAt' | 'updatedAt'>>): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if (student.name !== undefined) { updates.push('name = ?'); values.push(student.name); }
+      if (student.phone !== undefined) { updates.push('phone = ?'); values.push(student.phone); }
+      if (student.email !== undefined) { updates.push('email = ?'); values.push(student.email); }
+      if (student.birthDate !== undefined) { updates.push('birth_date = ?'); values.push(student.birthDate); }
+      if (student.unit !== undefined) { updates.push('unit = ?'); values.push(student.unit); }
+      if (student.paymentType !== undefined) { updates.push('payment_type = ?'); values.push(student.paymentType); }
+      if (student.plan !== undefined) { updates.push('plan = ?'); values.push(student.plan); }
+      if (student.planValue !== undefined) { updates.push('plan_value = ?'); values.push(student.planValue); }
+      if (student.dueDay !== undefined) { updates.push('due_day = ?'); values.push(student.dueDay); }
+      if (student.startDate !== undefined) { updates.push('start_date = ?'); values.push(student.startDate); }
+      if (student.platform !== undefined) { updates.push('platform = ?'); values.push(student.platform); }
+      if (student.balance !== undefined) { updates.push('balance = ?'); values.push(student.balance); }
+      if (student.status !== undefined) { updates.push('status = ?'); values.push(student.status); }
+      if (student.notes !== undefined) { updates.push('notes = ?'); values.push(student.notes); }
+
+      if (updates.length === 0) return false;
+
+      updates.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`UPDATE unified_students SET ${updates.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar aluno unificado #${id}`, error);
+      return false;
+    }
+  }
+
+  deleteUnifiedStudent(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM unified_students WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  updateUnifiedStudentBalance(id: number, amount: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE unified_students
+        SET balance = balance + ?, updated_at = ?
+        WHERE id = ?
+      `);
+      const result = stmt.run(amount, new Date().toISOString(), id);
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar saldo do aluno #${id}`, error);
+      return false;
+    }
+  }
+
+  getUnifiedStudentsSummary(): {
+    total: number;
+    mensalidade: number;
+    plataforma: number;
+    active: number;
+    inactive: number;
+    byUnit: { recreio: number; bangu: number };
+  } {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN payment_type = 'mensalidade' THEN 1 ELSE 0 END) as mensalidade,
+        SUM(CASE WHEN payment_type = 'plataforma' THEN 1 ELSE 0 END) as plataforma,
+        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+        SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive,
+        SUM(CASE WHEN unit = 'recreio' THEN 1 ELSE 0 END) as recreio,
+        SUM(CASE WHEN unit = 'bangu' THEN 1 ELSE 0 END) as bangu
+      FROM unified_students
+    `);
+
+    const result = stmt.get() as {
+      total: number;
+      mensalidade: number;
+      plataforma: number;
+      active: number;
+      inactive: number;
+      recreio: number;
+      bangu: number;
+    };
+
+    return {
+      total: result?.total || 0,
+      mensalidade: result?.mensalidade || 0,
+      plataforma: result?.plataforma || 0,
+      active: result?.active || 0,
+      inactive: result?.inactive || 0,
+      byUnit: {
+        recreio: result?.recreio || 0,
+        bangu: result?.bangu || 0,
+      },
+    };
+  }
+
+  private parseUnifiedStudentRow(row: UnifiedStudentRecordRaw): UnifiedStudentRecord {
+    return {
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      email: row.email ?? undefined,
+      birthDate: row.birthDate ?? undefined,
+      unit: row.unit as 'recreio' | 'bangu',
+      paymentType: row.paymentType as 'mensalidade' | 'plataforma',
+      plan: row.plan ?? undefined,
+      planValue: row.planValue ?? undefined,
+      dueDay: row.dueDay ?? undefined,
+      startDate: row.startDate ?? undefined,
+      platform: row.platform as 'wellhub' | 'totalpass' | 'gurupass' | undefined,
+      balance: row.balance ?? 0,
+      status: row.status as 'active' | 'inactive' | 'suspended',
+      notes: row.notes ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
   }
 }
 

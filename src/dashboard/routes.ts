@@ -2286,6 +2286,188 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
   });
 
   // ===========================================================================
+  // UNIFIED STUDENTS (Alunos Unificados)
+  // ===========================================================================
+
+  router.get('/unified-students', (req: Request, res: Response) => {
+    try {
+      const { unit, paymentType, status, search } = req.query;
+
+      const students = sqliteService.getUnifiedStudents({
+        unit: unit as string,
+        paymentType: paymentType as string,
+        status: status as string,
+        search: search as string,
+      });
+
+      res.json({
+        total: students.length,
+        students,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar alunos unificados', error);
+      res.status(500).json({ error: 'Erro ao listar alunos' });
+    }
+  });
+
+  router.get('/unified-students/summary', (_req: Request, res: Response) => {
+    try {
+      const summary = sqliteService.getUnifiedStudentsSummary();
+      res.json(summary);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao obter resumo de alunos unificados', error);
+      res.status(500).json({ error: 'Erro ao obter resumo' });
+    }
+  });
+
+  router.get('/unified-students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const student = sqliteService.getUnifiedStudentById(id);
+
+      if (student) {
+        res.json(student);
+      } else {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar aluno unificado', error);
+      res.status(500).json({ error: 'Erro ao buscar aluno' });
+    }
+  });
+
+  router.post('/unified-students', (req: Request, res: Response) => {
+    try {
+      const { name, phone, email, birthDate, unit, paymentType, plan, planValue, dueDay, startDate, platform, status, notes } = req.body;
+
+      if (!name || !phone || !unit || !paymentType) {
+        res.status(400).json({ error: 'Nome, telefone, unidade e tipo de pagamento são obrigatórios' });
+        return;
+      }
+
+      // Validar campos obrigatórios por tipo de pagamento
+      if (paymentType === 'mensalidade' && (!plan || !planValue || !dueDay)) {
+        res.status(400).json({ error: 'Para mensalidade, plano, valor e dia de vencimento são obrigatórios' });
+        return;
+      }
+
+      if (paymentType === 'plataforma' && !platform) {
+        res.status(400).json({ error: 'Para plataforma, o tipo de plataforma é obrigatório' });
+        return;
+      }
+
+      const student = sqliteService.createUnifiedStudent({
+        name,
+        phone,
+        email,
+        birthDate,
+        unit,
+        paymentType,
+        plan,
+        planValue: planValue ? Math.round(planValue * 100) : undefined, // Converter para centavos
+        dueDay,
+        startDate: startDate || new Date().toISOString().split('T')[0],
+        platform,
+        balance: 0,
+        status: status || 'active',
+        notes,
+      });
+
+      if (student) {
+        logger.info(`[Dashboard] Aluno unificado criado: ${student.name} (${student.paymentType})`);
+        res.status(201).json(student);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar aluno' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar aluno unificado', error);
+      res.status(500).json({ error: 'Erro ao criar aluno' });
+    }
+  });
+
+  router.patch('/unified-students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const updates = { ...req.body };
+
+      // Converter planValue para centavos se fornecido
+      if (updates.planValue !== undefined) {
+        updates.planValue = Math.round(updates.planValue * 100);
+      }
+
+      const updated = sqliteService.updateUnifiedStudent(id, updates);
+
+      if (updated) {
+        const student = sqliteService.getUnifiedStudentById(id);
+        logger.info(`[Dashboard] Aluno unificado #${id} atualizado`);
+        res.json(student);
+      } else {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar aluno unificado', error);
+      res.status(500).json({ error: 'Erro ao atualizar aluno' });
+    }
+  });
+
+  router.delete('/unified-students/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteUnifiedStudent(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Aluno unificado #${id} removido`);
+        res.json({ success: true, message: 'Aluno removido' });
+      } else {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover aluno unificado', error);
+      res.status(500).json({ error: 'Erro ao remover aluno' });
+    }
+  });
+
+  router.post('/unified-students/:id/balance', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      const { amount } = req.body;
+
+      if (isNaN(id) || amount === undefined) {
+        res.status(400).json({ error: 'ID e valor são obrigatórios' });
+        return;
+      }
+
+      const updated = sqliteService.updateUnifiedStudentBalance(id, amount);
+
+      if (updated) {
+        const student = sqliteService.getUnifiedStudentById(id);
+        logger.info(`[Dashboard] Saldo do aluno #${id} atualizado: ${amount > 0 ? '+' : ''}${amount}`);
+        res.json(student);
+      } else {
+        res.status(404).json({ error: 'Aluno não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar saldo do aluno', error);
+      res.status(500).json({ error: 'Erro ao atualizar saldo' });
+    }
+  });
+
+  // ===========================================================================
   // CHECK-IN TRANSACTIONS (Transações de Check-in)
   // ===========================================================================
 

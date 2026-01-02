@@ -19,6 +19,7 @@ import {
   X,
   Wallet,
   LineChart,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,7 @@ interface DashboardLayoutProps {
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Alunos", url: "/alunos", icon: Users },
   { title: "Agendamentos", url: "/agendamentos", icon: Calendar },
   { title: "Enquetes", url: "/enquetes", icon: BarChart3 },
   { title: "Mensalidades", url: "/mensalidades", icon: CreditCard },
