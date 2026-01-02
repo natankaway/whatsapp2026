@@ -33,6 +33,7 @@ import {
   Edit,
   X,
   Play,
+  Pause,
   Pin,
   PinOff,
   History,
@@ -100,6 +101,7 @@ export default function EnquetesContent() {
   const [newOption, setNewOption] = useState("");
   const [executingId, setExecutingId] = useState<number | null>(null);
   const [pinningId, setPinningId] = useState<number | null>(null);
+  const [togglingAll, setTogglingAll] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -248,6 +250,26 @@ export default function EnquetesContent() {
     }
   };
 
+  const handleToggleAll = async (enable: boolean) => {
+    setTogglingAll(true);
+    try {
+      await Promise.all(
+        schedules.map((schedule) =>
+          updatePollSchedule(schedule.id, { enabled: enable })
+        )
+      );
+      fetchData();
+    } catch (error) {
+      console.error("Error toggling all schedules:", error);
+      alert("Erro ao alterar enquetes");
+    } finally {
+      setTogglingAll(false);
+    }
+  };
+
+  const allEnabled = schedules.length > 0 && schedules.every((s) => s.enabled);
+  const someEnabled = schedules.some((s) => s.enabled);
+
   const handleExecuteNow = async (id: number) => {
     if (!confirm("Deseja executar esta enquete agora?")) return;
     setExecutingId(id);
@@ -323,17 +345,35 @@ export default function EnquetesContent() {
         {/* Tab: Agendamentos */}
         <TabsContent value="schedules" className="space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold">Enquetes Automáticas</h2>
               <p className="text-muted-foreground">
                 Configure enquetes que serão enviadas automaticamente nos horários programados
               </p>
             </div>
-            <Button onClick={openNewDialog}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Enquete
-            </Button>
+            <div className="flex gap-2">
+              {schedules.length > 0 && (
+                <Button
+                  variant={someEnabled ? "outline" : "default"}
+                  onClick={() => handleToggleAll(!someEnabled)}
+                  disabled={togglingAll}
+                >
+                  {togglingAll ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                  ) : someEnabled ? (
+                    <Pause className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  {someEnabled ? "Pausar Todas" : "Ativar Todas"}
+                </Button>
+              )}
+              <Button onClick={openNewDialog}>
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Enquete
+              </Button>
+            </div>
           </div>
 
           {/* Schedules List */}

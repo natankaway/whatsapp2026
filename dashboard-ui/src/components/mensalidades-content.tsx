@@ -25,15 +25,12 @@ import {
 } from "@/components/ui/dialog";
 import {
   CreditCard,
-  Plus,
   Users,
   DollarSign,
   AlertTriangle,
   Phone,
   Mail,
   MapPin,
-  Trash2,
-  Edit,
   Send,
   Calendar,
   CheckCircle,
@@ -43,8 +40,6 @@ import {
 } from "lucide-react";
 import {
   getStudentsWithStatus,
-  updateStudent,
-  deleteStudent,
   createPayment,
   deletePayment,
   getPayments,
@@ -62,20 +57,6 @@ import {
   Unit,
   UnitBillingConfig,
 } from "@/lib/api";
-
-const PLANS = [
-  { value: "1x", label: "1x por semana" },
-  { value: "2x", label: "2x por semana" },
-  { value: "3x", label: "3x por semana" },
-  { value: "5x", label: "5x por semana" },
-  { value: "plataforma", label: "Plataforma" },
-];
-
-// Valores em centavos por unidade e plano
-const PLAN_VALUES: Record<string, Record<string, number>> = {
-  recreio: { "1x": 10000, "2x": 18000, "3x": 25000, "5x": 35000, plataforma: 5000 },
-  bangu: { "1x": 8000, "2x": 15000, "3x": 22000, "5x": 30000, plataforma: 5000 },
-};
 
 const PAYMENT_METHODS = [
   { value: "pix", label: "PIX" },
@@ -96,32 +77,11 @@ export default function MensalidadesContent() {
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [filterUnit, setFilterUnit] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [showStudentDialog, setShowStudentDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
-  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [sendingReminder, setSendingReminder] = useState<number | null>(null);
   const [executingBilling, setExecutingBilling] = useState(false);
   const [selectedBillingUnit, setSelectedBillingUnit] = useState<string>("default");
-
-  const [studentForm, setStudentForm] = useState({
-    name: "",
-    phone: "",
-    email: "",
-    unit: "recreio" as "recreio" | "bangu",
-    plan: "1x",
-    planValue: PLAN_VALUES.recreio["1x"],
-    dueDay: 10,
-    startDate: new Date().toISOString().split("T")[0],
-    status: "active" as "active" | "inactive" | "suspended",
-    notes: "",
-  });
-
-  // Atualiza o valor do plano automaticamente quando muda unidade ou plano
-  const updatePlanValue = (unit: string, plan: string) => {
-    const value = PLAN_VALUES[unit]?.[plan] || 10000;
-    setStudentForm((prev) => ({ ...prev, planValue: value }));
-  };
 
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
@@ -163,23 +123,6 @@ export default function MensalidadesContent() {
   const overdueCount = students.filter((s) => s.isOverdue).length;
   const activeCount = students.filter((s) => s.status === "active").length;
 
-  const openEditStudent = (student: Student) => {
-    setEditingStudent(student);
-    setStudentForm({
-      name: student.name,
-      phone: student.phone,
-      email: student.email || "",
-      unit: student.unit,
-      plan: student.plan,
-      planValue: student.planValue,
-      dueDay: student.dueDay,
-      startDate: student.startDate,
-      status: student.status,
-      notes: student.notes || "",
-    });
-    setShowStudentDialog(true);
-  };
-
   const openPaymentDialog = (student: Student) => {
     setSelectedStudent(student);
     setPaymentForm({
@@ -191,27 +134,6 @@ export default function MensalidadesContent() {
       notes: "",
     });
     setShowPaymentDialog(true);
-  };
-
-  const handleSaveStudent = async () => {
-    if (!editingStudent) return;
-    try {
-      await updateStudent(editingStudent.id, studentForm);
-      setShowStudentDialog(false);
-      fetchData();
-    } catch (error) {
-      console.error("Error saving student:", error);
-    }
-  };
-
-  const handleDeleteStudent = async (id: number) => {
-    if (!confirm("Tem certeza que deseja excluir este aluno?")) return;
-    try {
-      await deleteStudent(id);
-      fetchData();
-    } catch (error) {
-      console.error("Error deleting student:", error);
-    }
   };
 
   const handleSavePayment = async () => {
@@ -482,21 +404,6 @@ export default function MensalidadesContent() {
                           )}
                         </Button>
                       )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openEditStudent(student)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                        onClick={() => handleDeleteStudent(student.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -784,125 +691,6 @@ export default function MensalidadesContent() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Student Dialog */}
-      <Dialog open={showStudentDialog} onOpenChange={setShowStudentDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Editar Aluno</DialogTitle>
-            <DialogDescription>
-              Atualize os dados do aluno
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-4 max-h-[60vh] overflow-y-auto">
-            <div className="space-y-2">
-              <Label>Nome</Label>
-              <Input
-                placeholder="Nome completo"
-                value={studentForm.name}
-                onChange={(e) => setStudentForm((prev) => ({ ...prev, name: e.target.value }))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Telefone</Label>
-                <Input
-                  placeholder="(21) 99999-9999"
-                  value={studentForm.phone}
-                  onChange={(e) => setStudentForm((prev) => ({ ...prev, phone: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input
-                  type="email"
-                  placeholder="email@exemplo.com"
-                  value={studentForm.email}
-                  onChange={(e) => setStudentForm((prev) => ({ ...prev, email: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Unidade</Label>
-                <Select
-                  value={studentForm.unit}
-                  onValueChange={(value: "recreio" | "bangu") => {
-                    setStudentForm((prev) => ({ ...prev, unit: value }));
-                    updatePlanValue(value, studentForm.plan);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="recreio">Recreio</SelectItem>
-                    <SelectItem value="bangu">Bangu</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Plano</Label>
-                <Select
-                  value={studentForm.plan}
-                  onValueChange={(value) => {
-                    setStudentForm((prev) => ({ ...prev, plan: value }));
-                    updatePlanValue(studentForm.unit, value);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PLANS.map((plan) => (
-                      <SelectItem key={plan.value} value={plan.value}>
-                        {plan.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Valor (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={(studentForm.planValue / 100).toFixed(2)}
-                  onChange={(e) => setStudentForm((prev) => ({ ...prev, planValue: Math.round(Number(e.target.value) * 100) }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Dia Vencimento</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="28"
-                  value={studentForm.dueDay}
-                  onChange={(e) => setStudentForm((prev) => ({ ...prev, dueDay: Number(e.target.value) }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Observações</Label>
-              <Input
-                placeholder="Notas sobre o aluno"
-                value={studentForm.notes}
-                onChange={(e) => setStudentForm((prev) => ({ ...prev, notes: e.target.value }))}
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onClick={() => setShowStudentDialog(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleSaveStudent} disabled={!studentForm.name || !studentForm.phone}>
-                Salvar
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Payment Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>

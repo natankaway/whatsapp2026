@@ -27,8 +27,6 @@ import {
   Users,
   AlertTriangle,
   Phone,
-  Trash2,
-  Edit,
   Calendar,
   CheckCircle,
   History,
@@ -40,8 +38,6 @@ import {
 import {
   getCheckinStudents,
   getCheckinSummary,
-  updateCheckinStudent,
-  deleteCheckinStudent,
   getCheckinTransactions,
   createCheckinTransaction,
   deleteCheckinTransaction,
@@ -64,22 +60,10 @@ export default function CheckinsContent() {
   const [loading, setLoading] = useState(true);
   const [filterUnit, setFilterUnit] = useState<string>("all");
   const [filterPlatform, setFilterPlatform] = useState<string>("all");
-  const [showStudentDialog, setShowStudentDialog] = useState(false);
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
   const [showHistoryDialog, setShowHistoryDialog] = useState(false);
-  const [editingStudent, setEditingStudent] = useState<CheckinStudent | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<CheckinStudent | null>(null);
   const [studentHistory, setStudentHistory] = useState<CheckinTransaction[]>([]);
-
-  const [studentForm, setStudentForm] = useState({
-    name: "",
-    phone: "",
-    unit: "recreio" as "recreio" | "bangu",
-    platform: "wellhub" as "wellhub" | "totalpass" | "gurupass",
-    balance: 0,
-    status: "active" as "active" | "inactive",
-    notes: "",
-  });
 
   const [transactionForm, setTransactionForm] = useState({
     type: "credit" as "credit" | "debit",
@@ -114,31 +98,6 @@ export default function CheckinsContent() {
     if (filterPlatform !== "all" && student.platform !== filterPlatform) return false;
     return true;
   });
-
-  const handleSaveStudent = async () => {
-    if (!editingStudent) return;
-    try {
-      await updateCheckinStudent(editingStudent.id, studentForm);
-      setShowStudentDialog(false);
-      setEditingStudent(null);
-      resetStudentForm();
-      fetchData();
-    } catch (error) {
-      console.error("Error saving student:", error);
-      alert("Erro ao salvar aluno");
-    }
-  };
-
-  const handleDeleteStudent = async (id: number) => {
-    if (!confirm("Tem certeza que deseja excluir este aluno?")) return;
-    try {
-      await deleteCheckinStudent(id);
-      fetchData();
-    } catch (error) {
-      console.error("Error deleting student:", error);
-      alert("Erro ao excluir aluno");
-    }
-  };
 
   const handleSaveTransaction = async () => {
     if (!selectedStudent) return;
@@ -182,18 +141,6 @@ export default function CheckinsContent() {
     }
   };
 
-  const resetStudentForm = () => {
-    setStudentForm({
-      name: "",
-      phone: "",
-      unit: "recreio",
-      platform: "wellhub",
-      balance: 0,
-      status: "active",
-      notes: "",
-    });
-  };
-
   const resetTransactionForm = () => {
     setTransactionForm({
       type: "credit",
@@ -201,20 +148,6 @@ export default function CheckinsContent() {
       date: new Date().toISOString().split("T")[0],
       notes: "",
     });
-  };
-
-  const openEditStudent = (student: CheckinStudent) => {
-    setEditingStudent(student);
-    setStudentForm({
-      name: student.name,
-      phone: student.phone,
-      unit: student.unit,
-      platform: student.platform,
-      balance: student.balance,
-      status: student.status,
-      notes: student.notes || "",
-    });
-    setShowStudentDialog(true);
   };
 
   const openNewTransaction = (student: CheckinStudent) => {
@@ -361,8 +294,6 @@ export default function CheckinsContent() {
           <TabsContent value="all" className="space-y-4">
             <StudentsList
               students={filteredStudents}
-              onEdit={openEditStudent}
-              onDelete={handleDeleteStudent}
               onTransaction={openNewTransaction}
               onHistory={handleShowHistory}
               getBalanceBadge={getBalanceBadge}
@@ -373,8 +304,6 @@ export default function CheckinsContent() {
           <TabsContent value="owing" className="space-y-4">
             <StudentsList
               students={filteredStudents.filter(s => s.balance < 0)}
-              onEdit={openEditStudent}
-              onDelete={handleDeleteStudent}
               onTransaction={openNewTransaction}
               onHistory={handleShowHistory}
               getBalanceBadge={getBalanceBadge}
@@ -385,8 +314,6 @@ export default function CheckinsContent() {
           <TabsContent value="credits" className="space-y-4">
             <StudentsList
               students={filteredStudents.filter(s => s.balance > 0)}
-              onEdit={openEditStudent}
-              onDelete={handleDeleteStudent}
               onTransaction={openNewTransaction}
               onHistory={handleShowHistory}
               getBalanceBadge={getBalanceBadge}
@@ -433,111 +360,6 @@ export default function CheckinsContent() {
             </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Student Dialog */}
-        <Dialog open={showStudentDialog} onOpenChange={setShowStudentDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Editar Aluno</DialogTitle>
-              <DialogDescription>
-                Edite os dados do aluno de plataforma
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Nome</Label>
-                  <Input
-                    value={studentForm.name}
-                    onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
-                    placeholder="Nome do aluno"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Telefone</Label>
-                  <Input
-                    value={studentForm.phone}
-                    onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
-                    placeholder="(21) 99999-9999"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Unidade</Label>
-                  <Select
-                    value={studentForm.unit}
-                    onValueChange={(v) => setStudentForm({ ...studentForm, unit: v as "recreio" | "bangu" })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="recreio">Recreio</SelectItem>
-                      <SelectItem value="bangu">Bangu</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Plataforma</Label>
-                  <Select
-                    value={studentForm.platform}
-                    onValueChange={(v) => setStudentForm({ ...studentForm, platform: v as "wellhub" | "totalpass" | "gurupass" })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PLATFORMS.map(p => (
-                        <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Saldo Inicial</Label>
-                  <Input
-                    type="number"
-                    value={studentForm.balance}
-                    onChange={(e) => setStudentForm({ ...studentForm, balance: parseInt(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Positivo = creditos, Negativo = devendo
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Status</Label>
-                  <Select
-                    value={studentForm.status}
-                    onValueChange={(v) => setStudentForm({ ...studentForm, status: v as "active" | "inactive" })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Ativo</SelectItem>
-                      <SelectItem value="inactive">Inativo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Observacoes</Label>
-                <Input
-                  value={studentForm.notes}
-                  onChange={(e) => setStudentForm({ ...studentForm, notes: e.target.value })}
-                  placeholder="Observacoes opcionais"
-                />
-              </div>
-              <Button onClick={handleSaveStudent} className="w-full">
-                Salvar Alteracoes
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
 
         {/* Transaction Dialog */}
         <Dialog open={showTransactionDialog} onOpenChange={setShowTransactionDialog}>
@@ -677,16 +499,12 @@ export default function CheckinsContent() {
 // Sub-component for students list
 function StudentsList({
   students,
-  onEdit,
-  onDelete,
   onTransaction,
   onHistory,
   getBalanceBadge,
   getPlatformLabel,
 }: {
   students: CheckinStudent[];
-  onEdit: (s: CheckinStudent) => void;
-  onDelete: (id: number) => void;
   onTransaction: (s: CheckinStudent) => void;
   onHistory: (s: CheckinStudent) => void;
   getBalanceBadge: (balance: number) => React.ReactNode;
@@ -750,20 +568,6 @@ function StudentsList({
                 onClick={() => onHistory(student)}
               >
                 <History className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onEdit(student)}
-              >
-                <Edit className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onDelete(student.id)}
-              >
-                <Trash2 className="h-4 w-4 text-red-500" />
               </Button>
             </div>
           </CardContent>
