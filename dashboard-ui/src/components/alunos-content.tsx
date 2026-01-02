@@ -382,7 +382,7 @@ export default function AlunosContent() {
                 <SelectContent>
                   <SelectItem value="all">Todas Unidades</SelectItem>
                   {units.map((unit) => (
-                    <SelectItem key={unit.id} value={unit.name.toLowerCase()}>
+                    <SelectItem key={unit.id} value={unit.slug}>
                       {unit.name}
                     </SelectItem>
                   ))}
@@ -566,14 +566,27 @@ export default function AlunosContent() {
                 <Label htmlFor="unit">Unidade *</Label>
                 <Select
                   value={formData.unit}
-                  onValueChange={(v) => setFormData({ ...formData, unit: v as "recreio" | "bangu" })}
+                  onValueChange={(v) => {
+                    setFormData({ ...formData, unit: v as "recreio" | "bangu" });
+                    // Atualizar valor quando trocar de unidade
+                    const selectedUnit = units.find(u => u.slug === v);
+                    if (selectedUnit && formData.plan) {
+                      const priceInfo = selectedUnit.prices?.mensalidade?.find(
+                        p => p.frequencia.toLowerCase().includes(formData.plan || "")
+                      );
+                      if (priceInfo) {
+                        const value = parseFloat(priceInfo.valor.replace("R$", "").replace(".", "").replace(",", ".").trim()) || 0;
+                        setPlanValueDisplay(value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                      }
+                    }
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {units.map((unit) => (
-                      <SelectItem key={unit.id} value={unit.name.toLowerCase()}>
+                      <SelectItem key={unit.id} value={unit.slug}>
                         {unit.name}
                       </SelectItem>
                     ))}
@@ -610,17 +623,41 @@ export default function AlunosContent() {
                     <Label htmlFor="plan">Plano *</Label>
                     <Select
                       value={formData.plan}
-                      onValueChange={(v) => setFormData({ ...formData, plan: v })}
+                      onValueChange={(v) => {
+                        setFormData({ ...formData, plan: v });
+                        // Auto-preencher valor baseado na unidade selecionada
+                        const selectedUnit = units.find(u => u.slug === formData.unit);
+                        if (selectedUnit) {
+                          const priceInfo = selectedUnit.prices?.mensalidade?.find(
+                            p => p.frequencia.toLowerCase().includes(v)
+                          );
+                          if (priceInfo) {
+                            const value = parseFloat(priceInfo.valor.replace("R$", "").replace(".", "").replace(",", ".").trim()) || 0;
+                            setPlanValueDisplay(value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                          }
+                        }
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {PLANS.map((plan) => (
-                          <SelectItem key={plan.value} value={plan.value}>
-                            {plan.label}
-                          </SelectItem>
-                        ))}
+                        {(() => {
+                          const selectedUnit = units.find(u => u.slug === formData.unit);
+                          const unitPrices = selectedUnit?.prices?.mensalidade || [];
+
+                          return PLANS.map((plan) => {
+                            const priceInfo = unitPrices.find(p =>
+                              p.frequencia.toLowerCase().includes(plan.value)
+                            );
+                            const priceLabel = priceInfo ? ` - ${priceInfo.valor}` : "";
+                            return (
+                              <SelectItem key={plan.value} value={plan.value}>
+                                {plan.label}{priceLabel}
+                              </SelectItem>
+                            );
+                          });
+                        })()}
                       </SelectContent>
                     </Select>
                   </div>
