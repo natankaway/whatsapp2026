@@ -43,7 +43,6 @@ import {
 } from "lucide-react";
 import {
   getStudentsWithStatus,
-  createStudent,
   updateStudent,
   deleteStudent,
   createPayment,
@@ -164,23 +163,6 @@ export default function MensalidadesContent() {
   const overdueCount = students.filter((s) => s.isOverdue).length;
   const activeCount = students.filter((s) => s.status === "active").length;
 
-  const openNewStudent = () => {
-    setEditingStudent(null);
-    setStudentForm({
-      name: "",
-      phone: "",
-      email: "",
-      unit: "recreio" as "recreio" | "bangu",
-      plan: "1x",
-      planValue: PLAN_VALUES.recreio["1x"],
-      dueDay: 10,
-      startDate: new Date().toISOString().split("T")[0],
-      status: "active" as const,
-      notes: "",
-    });
-    setShowStudentDialog(true);
-  };
-
   const openEditStudent = (student: Student) => {
     setEditingStudent(student);
     setStudentForm({
@@ -212,12 +194,9 @@ export default function MensalidadesContent() {
   };
 
   const handleSaveStudent = async () => {
+    if (!editingStudent) return;
     try {
-      if (editingStudent) {
-        await updateStudent(editingStudent.id, studentForm);
-      } else {
-        await createStudent(studentForm);
-      }
+      await updateStudent(editingStudent.id, studentForm);
       setShowStudentDialog(false);
       fetchData();
     } catch (error) {
@@ -420,10 +399,7 @@ export default function MensalidadesContent() {
                   Cobrar Todos em Atraso
                 </Button>
               )}
-              <Button onClick={openNewStudent}>
-                <Plus className="h-4 w-4 mr-2" />
-                Novo Aluno
-              </Button>
+              {/* Alunos são criados apenas na tela Alunos */}
             </div>
           </div>
 
@@ -813,11 +789,9 @@ export default function MensalidadesContent() {
       <Dialog open={showStudentDialog} onOpenChange={setShowStudentDialog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {editingStudent ? "Editar Aluno" : "Novo Aluno"}
-            </DialogTitle>
+            <DialogTitle>Editar Aluno</DialogTitle>
             <DialogDescription>
-              {editingStudent ? "Atualize os dados do aluno" : "Cadastre um novo aluno"}
+              Atualize os dados do aluno
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-4 max-h-[60vh] overflow-y-auto">
@@ -923,7 +897,7 @@ export default function MensalidadesContent() {
                 Cancelar
               </Button>
               <Button onClick={handleSaveStudent} disabled={!studentForm.name || !studentForm.phone}>
-                {editingStudent ? "Salvar" : "Cadastrar"}
+                Salvar
               </Button>
             </div>
           </div>

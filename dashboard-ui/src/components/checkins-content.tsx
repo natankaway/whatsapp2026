@@ -40,7 +40,6 @@ import {
 import {
   getCheckinStudents,
   getCheckinSummary,
-  createCheckinStudent,
   updateCheckinStudent,
   deleteCheckinStudent,
   getCheckinTransactions,
@@ -117,12 +116,9 @@ export default function CheckinsContent() {
   });
 
   const handleSaveStudent = async () => {
+    if (!editingStudent) return;
     try {
-      if (editingStudent) {
-        await updateCheckinStudent(editingStudent.id, studentForm);
-      } else {
-        await createCheckinStudent(studentForm);
-      }
+      await updateCheckinStudent(editingStudent.id, studentForm);
       setShowStudentDialog(false);
       setEditingStudent(null);
       resetStudentForm();
@@ -263,11 +259,7 @@ export default function CheckinsContent() {
               Gerencie alunos de plataformas
             </p>
           </div>
-          <Button size="sm" onClick={() => { resetStudentForm(); setEditingStudent(null); setShowStudentDialog(true); }}>
-            <Plus className="h-4 w-4 sm:mr-2" />
-            <span className="hidden sm:inline">Novo Aluno</span>
-            <span className="sm:hidden">Novo</span>
-          </Button>
+{/* Alunos são criados apenas na tela Alunos */}
         </div>
 
         {/* Summary Cards */}
@@ -446,9 +438,9 @@ export default function CheckinsContent() {
         <Dialog open={showStudentDialog} onOpenChange={setShowStudentDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingStudent ? "Editar Aluno" : "Novo Aluno"}</DialogTitle>
+              <DialogTitle>Editar Aluno</DialogTitle>
               <DialogDescription>
-                Preencha os dados do aluno de plataforma
+                Edite os dados do aluno de plataforma
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -541,7 +533,7 @@ export default function CheckinsContent() {
                 />
               </div>
               <Button onClick={handleSaveStudent} className="w-full">
-                {editingStudent ? "Salvar Alteracoes" : "Cadastrar Aluno"}
+                Salvar Alteracoes
               </Button>
             </div>
           </DialogContent>

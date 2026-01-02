@@ -294,6 +294,51 @@ export default function ConfiguracoesContent() {
     }));
   };
 
+  // Formata valor para moeda brasileira
+  const formatCurrencyValue = (value: string): string => {
+    // Remove tudo que não é número
+    const numbers = value.replace(/\D/g, '');
+    if (!numbers) return '';
+
+    // Converte para centavos e formata
+    const cents = parseInt(numbers, 10);
+    const reais = cents / 100;
+    return reais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const handleValorChange = (index: number, inputValue: string) => {
+    // Remove tudo que não é número
+    const numbers = inputValue.replace(/\D/g, '');
+
+    // Formata e adiciona o prefixo R$
+    let formatted = '';
+    if (numbers) {
+      const cents = parseInt(numbers, 10);
+      const reais = cents / 100;
+      formatted = `R$ ${reais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    updateMensalidade(index, 'valor', formatted);
+  };
+
+  const handleAvulsaChange = (inputValue: string) => {
+    // Remove tudo que não é número
+    const numbers = inputValue.replace(/\D/g, '');
+
+    // Formata e adiciona o prefixo R$
+    let formatted = '';
+    if (numbers) {
+      const cents = parseInt(numbers, 10);
+      const reais = cents / 100;
+      formatted = `R$ ${reais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    setUnitFormData(prev => ({
+      ...prev,
+      prices: { ...prev.prices, avulsa: formatted }
+    }));
+  };
+
   const updateMensalidade = (index: number, field: keyof UnitPrice, value: string) => {
     setUnitFormData(prev => ({
       ...prev,
@@ -706,9 +751,10 @@ export default function ConfiguracoesContent() {
                     />
                     <Input
                       value={m.valor}
-                      onChange={(e) => updateMensalidade(i, 'valor', e.target.value)}
+                      onChange={(e) => handleValorChange(i, e.target.value)}
                       placeholder="R$ 100,00"
                       className="w-32"
+                      inputMode="numeric"
                     />
                     <button onClick={() => removeMensalidade(i)} className="hover:text-destructive p-2">
                       <X className="h-4 w-4" />
@@ -722,11 +768,9 @@ export default function ConfiguracoesContent() {
               <Label>Valor Aula Avulsa</Label>
               <Input
                 value={unitFormData.prices.avulsa}
-                onChange={(e) => setUnitFormData(prev => ({
-                  ...prev,
-                  prices: { ...prev.prices, avulsa: e.target.value }
-                }))}
+                onChange={(e) => handleAvulsaChange(e.target.value)}
                 placeholder="R$ 30,00"
+                inputMode="numeric"
               />
             </div>
 
