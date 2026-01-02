@@ -162,6 +162,17 @@ export function createDashboardRoutes(): Router {
         return;
       }
 
+      // Criar notificação de nova reserva
+      const dateFormatted = formatDateBR(date);
+      sqliteService.createNotification({
+        type: 'new_booking',
+        title: 'Nova Reserva',
+        message: `${name} agendou para ${dateFormatted} às ${time} - ${unit.name}`,
+        link: '/agendamentos',
+        referenceId: booking.id,
+        referenceType: 'booking',
+      });
+
       res.status(201).json({
         ...booking,
         unitId: unit.id,
@@ -1699,6 +1710,17 @@ export function createDashboardRoutes(): Router {
       });
 
       if (student) {
+        // Criar notificação de novo aluno
+        const unitLabel = unit === 'recreio' ? 'Recreio' : 'Bangu';
+        sqliteService.createNotification({
+          type: 'new_student',
+          title: 'Novo Aluno',
+          message: `${name} foi cadastrado na unidade ${unitLabel}`,
+          link: '/mensalidades',
+          referenceId: student.id,
+          referenceType: 'student',
+        });
+
         logger.info(`[Dashboard] Aluno criado: ${name}`);
         res.status(201).json(student);
       } else {
@@ -1859,6 +1881,16 @@ export function createDashboardRoutes(): Router {
           referenceId: payment.id,
           referenceType: 'payment',
           notes: notes || undefined,
+        });
+
+        // Criar notificação de pagamento recebido
+        sqliteService.createNotification({
+          type: 'payment_received',
+          title: 'Pagamento Recebido',
+          message: `${student.name} pagou R$ ${amount.toFixed(2)} - ${monthFormatted}`,
+          link: '/mensalidades',
+          referenceId: payment.id,
+          referenceType: 'payment',
         });
 
         logger.info(`[Dashboard] Pagamento registrado para aluno #${studentId}: R$ ${(amount).toFixed(2)}`);
@@ -2732,6 +2764,118 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
     } catch (error) {
       logger.error('[Dashboard] Erro ao cancelar parcelamento', error);
       res.status(500).json({ error: 'Erro ao cancelar parcelamento' });
+    }
+  });
+
+  // ===========================================================================
+  // NOTIFICAÇÕES
+  // ===========================================================================
+
+  router.get('/notifications', (req: Request, res: Response) => {
+    try {
+      const read = req.query.read !== undefined ? req.query.read === 'true' : undefined;
+      const type = req.query.type as string | undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+      const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+
+      const result = sqliteService.getNotifications({ read, type, limit, offset });
+      res.json(result);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar notificações', error);
+      res.status(500).json({ error: 'Erro ao buscar notificações' });
+    }
+  });
+
+  router.post('/notifications', (req: Request, res: Response) => {
+    try {
+      const { type, title, message, icon, link, referenceId, referenceType } = req.body;
+
+      if (!type || !title || !message) {
+        res.status(400).json({ error: 'Campos obrigatórios: type, title, message' });
+        return;
+      }
+
+      const notification = sqliteService.createNotification({
+        type,
+        title,
+        message,
+        icon,
+        link,
+        referenceId,
+        referenceType,
+      });
+
+      if (notification) {
+        res.status(201).json(notification);
+      } else {
+        res.status(500).json({ error: 'Erro ao criar notificação' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar notificação', error);
+      res.status(500).json({ error: 'Erro ao criar notificação' });
+    }
+  });
+
+  router.patch('/notifications/:id/read', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const updated = sqliteService.markNotificationRead(id);
+
+      if (updated) {
+        res.json({ success: true, message: 'Notificação marcada como lida' });
+      } else {
+        res.status(404).json({ error: 'Notificação não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao marcar notificação como lida', error);
+      res.status(500).json({ error: 'Erro ao marcar notificação como lida' });
+    }
+  });
+
+  router.patch('/notifications/read-all', (_req: Request, res: Response) => {
+    try {
+      const count = sqliteService.markAllNotificationsRead();
+      res.json({ success: true, message: `${count} notificações marcadas como lidas` });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao marcar todas notificações como lidas', error);
+      res.status(500).json({ error: 'Erro ao marcar notificações como lidas' });
+    }
+  });
+
+  router.delete('/notifications/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteNotification(id);
+
+      if (deleted) {
+        res.json({ success: true, message: 'Notificação removida' });
+      } else {
+        res.status(404).json({ error: 'Notificação não encontrada' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover notificação', error);
+      res.status(500).json({ error: 'Erro ao remover notificação' });
+    }
+  });
+
+  router.delete('/notifications/old', (req: Request, res: Response) => {
+    try {
+      const daysOld = req.query.days ? parseInt(req.query.days as string, 10) : 30;
+      const count = sqliteService.deleteOldNotifications(daysOld);
+      res.json({ success: true, message: `${count} notificações antigas removidas` });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao remover notificações antigas', error);
+      res.status(500).json({ error: 'Erro ao remover notificações antigas' });
     }
   });
 

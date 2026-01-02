@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { NotificationBell } from "@/components/notification-bell";
 import { isAuthenticated, getStatus, logout, BotStatus } from "@/lib/api";
 
 interface DashboardLayoutProps {
@@ -244,6 +245,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             <Menu className="h-5 w-5" />
           </Button>
           {title && <h1 className="text-lg font-semibold">{title}</h1>}
+          <div className="ml-auto">
+            <NotificationBell />
+          </div>
         </header>
 
         {/* Page Content */}

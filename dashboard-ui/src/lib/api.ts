@@ -864,3 +864,62 @@ export const CASH_UNITS = [
   { value: 'bangu', label: 'Bangu' },
   { value: 'geral', label: 'Geral' },
 ];
+
+// ============= Notification Types =============
+
+export interface Notification {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  icon?: string;
+  link?: string;
+  referenceId?: number;
+  referenceType?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface NotificationsResponse {
+  notifications: Notification[];
+  total: number;
+  unreadCount: number;
+}
+
+// Notification types for icons and styling
+export const NOTIFICATION_TYPES = {
+  payment_overdue: { icon: 'AlertTriangle', color: 'text-red-500', bgColor: 'bg-red-500/10' },
+  payment_due_soon: { icon: 'Clock', color: 'text-yellow-500', bgColor: 'bg-yellow-500/10' },
+  payment_received: { icon: 'DollarSign', color: 'text-green-500', bgColor: 'bg-green-500/10' },
+  new_booking: { icon: 'Calendar', color: 'text-blue-500', bgColor: 'bg-blue-500/10' },
+  bot_disconnected: { icon: 'WifiOff', color: 'text-red-500', bgColor: 'bg-red-500/10' },
+  bot_connected: { icon: 'Wifi', color: 'text-green-500', bgColor: 'bg-green-500/10' },
+  new_student: { icon: 'UserPlus', color: 'text-blue-500', bgColor: 'bg-blue-500/10' },
+  info: { icon: 'Info', color: 'text-blue-500', bgColor: 'bg-blue-500/10' },
+} as const;
+
+// ============= Notification API Functions =============
+
+export const getNotifications = (params?: { read?: boolean; type?: string; limit?: number; offset?: number }) => {
+  const query = new URLSearchParams();
+  if (params?.read !== undefined) query.set('read', String(params.read));
+  if (params?.type) query.set('type', params.type);
+  if (params?.limit) query.set('limit', String(params.limit));
+  if (params?.offset) query.set('offset', String(params.offset));
+  return fetchApi<NotificationsResponse>(`/notifications?${query}`);
+};
+
+export const createNotification = (data: Omit<Notification, 'id' | 'read' | 'createdAt'>) =>
+  fetchApi<Notification>('/notifications', { method: 'POST', body: JSON.stringify(data) });
+
+export const markNotificationRead = (id: number) =>
+  fetchApi<{ success: boolean; message: string }>(`/notifications/${id}/read`, { method: 'PATCH' });
+
+export const markAllNotificationsRead = () =>
+  fetchApi<{ success: boolean; message: string }>('/notifications/read-all', { method: 'PATCH' });
+
+export const deleteNotification = (id: number) =>
+  fetchApi<{ success: boolean; message: string }>(`/notifications/${id}`, { method: 'DELETE' });
+
+export const deleteOldNotifications = (days: number = 30) =>
+  fetchApi<{ success: boolean; message: string }>(`/notifications/old?days=${days}`, { method: 'DELETE' });

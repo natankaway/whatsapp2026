@@ -393,6 +393,19 @@ interface UnitRecordRaw {
   updatedAt: string;
 }
 
+export interface NotificationRecord {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  icon?: string;
+  link?: string;
+  referenceId?: number;
+  referenceType?: string;
+  read: boolean;
+  createdAt: string;
+}
+
 class SQLiteService {
   private db: Database.Database | null = null;
   private readonly dbPath: string;
@@ -941,6 +954,30 @@ class SQLiteService {
 
           db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_transactions_unit ON cash_transactions(unit)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_installments_unit ON installments(unit)`);
+        },
+      },
+      {
+        name: '014_create_notifications_table',
+        up: (db) => {
+          // Tabela de notificações do dashboard
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS notifications (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              type TEXT NOT NULL,
+              title TEXT NOT NULL,
+              message TEXT NOT NULL,
+              icon TEXT,
+              link TEXT,
+              reference_id INTEGER,
+              reference_type TEXT,
+              read INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC)`);
         },
       },
     ];
@@ -3592,6 +3629,186 @@ class SQLiteService {
    */
   getInstallmentTransactions(installmentId: number): CashTransactionRecord[] {
     return this.getCashTransactions({ installmentId });
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE NOTIFICAÇÕES
+  // ===========================================================================
+
+  /**
+   * Cria uma nova notificação
+   */
+  createNotification(data: {
+    type: string;
+    title: string;
+    message: string;
+    icon?: string;
+    link?: string;
+    referenceId?: number;
+    referenceType?: string;
+  }): NotificationRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO notifications (type, title, message, icon, link, reference_id, reference_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        data.type,
+        data.title,
+        data.message,
+        data.icon ?? null,
+        data.link ?? null,
+        data.referenceId ?? null,
+        data.referenceType ?? null
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        type: data.type,
+        title: data.title,
+        message: data.message,
+        icon: data.icon,
+        link: data.link,
+        referenceId: data.referenceId,
+        referenceType: data.referenceType,
+        read: false,
+        createdAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar notificação', error);
+      return null;
+    }
+  }
+
+  /**
+   * Busca notificações com filtros
+   */
+  getNotifications(filters?: {
+    read?: boolean;
+    type?: string;
+    limit?: number;
+    offset?: number;
+  }): { notifications: NotificationRecord[]; total: number; unreadCount: number } {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let whereClause = '';
+    const params: unknown[] = [];
+
+    if (filters?.read !== undefined) {
+      whereClause += ' AND read = ?';
+      params.push(filters.read ? 1 : 0);
+    }
+
+    if (filters?.type) {
+      whereClause += ' AND type = ?';
+      params.push(filters.type);
+    }
+
+    // Count total
+    const countStmt = this.db.prepare(`SELECT COUNT(*) as count FROM notifications WHERE 1=1 ${whereClause}`);
+    const countResult = countStmt.get(...params) as { count: number };
+
+    // Count unread
+    const unreadStmt = this.db.prepare(`SELECT COUNT(*) as count FROM notifications WHERE read = 0`);
+    const unreadResult = unreadStmt.get() as { count: number };
+
+    // Fetch notifications
+    let query = `
+      SELECT id, type, title, message, icon, link, reference_id, reference_type, read, created_at
+      FROM notifications
+      WHERE 1=1 ${whereClause}
+      ORDER BY created_at DESC
+    `;
+
+    if (filters?.limit) {
+      query += ` LIMIT ${filters.limit}`;
+      if (filters?.offset) {
+        query += ` OFFSET ${filters.offset}`;
+      }
+    }
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as Array<{
+      id: number;
+      type: string;
+      title: string;
+      message: string;
+      icon: string | null;
+      link: string | null;
+      reference_id: number | null;
+      reference_type: string | null;
+      read: number;
+      created_at: string;
+    }>;
+
+    const notifications: NotificationRecord[] = rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      title: row.title,
+      message: row.message,
+      icon: row.icon ?? undefined,
+      link: row.link ?? undefined,
+      referenceId: row.reference_id ?? undefined,
+      referenceType: row.reference_type ?? undefined,
+      read: row.read === 1,
+      createdAt: row.created_at,
+    }));
+
+    return {
+      notifications,
+      total: countResult.count,
+      unreadCount: unreadResult.count,
+    };
+  }
+
+  /**
+   * Marca notificação como lida
+   */
+  markNotificationRead(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('UPDATE notifications SET read = 1 WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  /**
+   * Marca todas as notificações como lidas
+   */
+  markAllNotificationsRead(): number {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('UPDATE notifications SET read = 1 WHERE read = 0');
+    const result = stmt.run();
+    return result.changes;
+  }
+
+  /**
+   * Remove uma notificação
+   */
+  deleteNotification(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM notifications WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  /**
+   * Remove notificações antigas (mais de X dias)
+   */
+  deleteOldNotifications(daysOld: number = 30): number {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      DELETE FROM notifications
+      WHERE created_at < datetime('now', '-' || ? || ' days')
+    `);
+    const result = stmt.run(daysOld);
+    return result.changes;
   }
 }
 
