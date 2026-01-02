@@ -229,6 +229,7 @@ export interface Student {
   lastPayment?: Payment;
   isOverdue?: boolean;
   daysOverdue?: number;
+  isUnified?: boolean; // Flag para identificar alunos da tabela unificada
 }
 
 export interface Payment {
@@ -609,6 +610,7 @@ export interface CheckinStudent {
   createdAt: string;
   updatedAt: string;
   transactions?: CheckinTransaction[];
+  isUnified?: boolean; // Flag para identificar alunos da tabela unificada
 }
 
 export interface CheckinTransaction {

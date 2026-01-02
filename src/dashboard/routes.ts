@@ -1593,14 +1593,44 @@ export function createDashboardRoutes(): Router {
   router.get('/students', (req: Request, res: Response) => {
     try {
       const { unit, status } = req.query;
-      const students = sqliteService.getStudents({
+
+      // Buscar alunos da tabela original
+      const originalStudents = sqliteService.getStudents({
         unit: unit as string,
         status: status as string,
       });
 
+      // Buscar alunos unificados do tipo mensalidade
+      const unifiedStudents = sqliteService.getUnifiedStudents({
+        unit: unit as string,
+        paymentType: 'mensalidade',
+        status: status as string,
+      });
+
+      // Converter alunos unificados para formato de mensalidade
+      const convertedUnified = unifiedStudents.map(s => ({
+        id: s.id! + 1000000, // Offset para evitar conflito de IDs
+        name: s.name,
+        phone: s.phone,
+        email: s.email,
+        unit: s.unit,
+        plan: s.plan || '2x',
+        planValue: s.planValue || 0,
+        dueDay: s.dueDay || 10,
+        startDate: s.startDate || s.createdAt.split('T')[0],
+        status: s.status,
+        notes: s.notes,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        isUnified: true, // Marcador para identificar origem
+      }));
+
+      // Combinar os dois arrays
+      const allStudents = [...originalStudents, ...convertedUnified];
+
       res.json({
-        total: students.length,
-        students,
+        total: allStudents.length,
+        students: allStudents,
       });
     } catch (error) {
       logger.error('[Dashboard] Erro ao listar alunos', error);
@@ -1611,14 +1641,43 @@ export function createDashboardRoutes(): Router {
   router.get('/students/with-status', (_req: Request, res: Response) => {
     try {
       const students = sqliteService.getStudentsWithPaymentStatus();
-      const overdue = students.filter(s => s.isOverdue);
-      const upToDate = students.filter(s => !s.isOverdue);
+
+      // Buscar alunos unificados do tipo mensalidade
+      const unifiedStudents = sqliteService.getUnifiedStudents({
+        paymentType: 'mensalidade',
+        status: 'active',
+      });
+
+      // Converter e adicionar alunos unificados (sem status de pagamento por enquanto)
+      const convertedUnified = unifiedStudents.map(s => ({
+        id: s.id! + 1000000,
+        name: s.name,
+        phone: s.phone,
+        email: s.email,
+        unit: s.unit,
+        plan: s.plan || '2x',
+        planValue: s.planValue || 0,
+        dueDay: s.dueDay || 10,
+        startDate: s.startDate || s.createdAt.split('T')[0],
+        status: s.status,
+        notes: s.notes,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        isUnified: true,
+        lastPayment: undefined,
+        isOverdue: false, // Por enquanto, não verifica pagamentos
+        daysOverdue: 0,
+      }));
+
+      const allStudents = [...students, ...convertedUnified];
+      const overdue = allStudents.filter(s => s.isOverdue);
+      const upToDate = allStudents.filter(s => !s.isOverdue);
 
       res.json({
-        total: students.length,
+        total: allStudents.length,
         overdueCount: overdue.length,
         upToDateCount: upToDate.length,
-        students,
+        students: allStudents,
       });
     } catch (error) {
       logger.error('[Dashboard] Erro ao listar alunos com status', error);
@@ -2113,15 +2172,47 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
   router.get('/checkin-students', (req: Request, res: Response) => {
     try {
       const { unit, platform, status } = req.query;
-      const students = sqliteService.getCheckinStudents({
+
+      // Buscar alunos da tabela original
+      const originalStudents = sqliteService.getCheckinStudents({
         unit: unit as string,
         platform: platform as string,
         status: status as string,
       });
 
+      // Buscar alunos unificados do tipo plataforma
+      const unifiedStudents = sqliteService.getUnifiedStudents({
+        unit: unit as string,
+        paymentType: 'plataforma',
+        status: status as string,
+      });
+
+      // Filtrar por plataforma se especificado
+      const filteredUnified = platform
+        ? unifiedStudents.filter(s => s.platform === platform)
+        : unifiedStudents;
+
+      // Converter alunos unificados para formato de checkin
+      const convertedUnified = filteredUnified.map(s => ({
+        id: s.id! + 1000000, // Offset para evitar conflito de IDs
+        name: s.name,
+        phone: s.phone,
+        unit: s.unit,
+        platform: s.platform || 'wellhub',
+        balance: s.balance || 0,
+        status: s.status === 'suspended' ? 'inactive' : s.status,
+        notes: s.notes,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        isUnified: true, // Marcador para identificar origem
+      }));
+
+      // Combinar os dois arrays
+      const allStudents = [...originalStudents, ...convertedUnified];
+
       res.json({
-        total: students.length,
-        students,
+        total: allStudents.length,
+        students: allStudents,
       });
     } catch (error) {
       logger.error('[Dashboard] Erro ao listar alunos de check-in', error);
@@ -2131,8 +2222,30 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
 
   router.get('/checkin-students/summary', (_req: Request, res: Response) => {
     try {
-      const summary = sqliteService.getCheckinSummary();
-      res.json(summary);
+      const originalSummary = sqliteService.getCheckinSummary();
+
+      // Contar alunos unificados do tipo plataforma
+      const unifiedStudents = sqliteService.getUnifiedStudents({
+        paymentType: 'plataforma',
+        status: 'active',
+      });
+
+      const unifiedOwing = unifiedStudents.filter(s => (s.balance || 0) < 0).length;
+      const unifiedWithCredits = unifiedStudents.filter(s => (s.balance || 0) > 0).length;
+      const unifiedBalanceOwed = unifiedStudents
+        .filter(s => (s.balance || 0) < 0)
+        .reduce((acc, s) => acc + Math.abs(s.balance || 0), 0);
+      const unifiedCreditsAvailable = unifiedStudents
+        .filter(s => (s.balance || 0) > 0)
+        .reduce((acc, s) => acc + (s.balance || 0), 0);
+
+      res.json({
+        totalStudents: originalSummary.totalStudents + unifiedStudents.length,
+        totalOwing: originalSummary.totalOwing + unifiedOwing,
+        totalWithCredits: originalSummary.totalWithCredits + unifiedWithCredits,
+        totalBalanceOwed: originalSummary.totalBalanceOwed + unifiedBalanceOwed,
+        totalCreditsAvailable: originalSummary.totalCreditsAvailable + unifiedCreditsAvailable,
+      });
     } catch (error) {
       logger.error('[Dashboard] Erro ao obter resumo de check-ins', error);
       res.status(500).json({ error: 'Erro ao obter resumo' });
@@ -2141,7 +2254,29 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
 
   router.get('/checkin-students/owing', (_req: Request, res: Response) => {
     try {
-      const students = sqliteService.getCheckinStudentsOwing();
+      const originalStudents = sqliteService.getCheckinStudentsOwing();
+
+      // Buscar alunos unificados devendo
+      const unifiedStudents = sqliteService.getUnifiedStudents({
+        paymentType: 'plataforma',
+        status: 'active',
+      }).filter(s => (s.balance || 0) < 0);
+
+      const convertedUnified = unifiedStudents.map(s => ({
+        id: s.id! + 1000000,
+        name: s.name,
+        phone: s.phone,
+        unit: s.unit,
+        platform: s.platform || 'wellhub',
+        balance: s.balance || 0,
+        status: s.status,
+        notes: s.notes,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        isUnified: true,
+      }));
+
+      const students = [...originalStudents, ...convertedUnified];
       res.json({
         total: students.length,
         students,
@@ -2154,7 +2289,29 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
 
   router.get('/checkin-students/with-credits', (_req: Request, res: Response) => {
     try {
-      const students = sqliteService.getCheckinStudentsWithCredits();
+      const originalStudents = sqliteService.getCheckinStudentsWithCredits();
+
+      // Buscar alunos unificados com créditos
+      const unifiedStudents = sqliteService.getUnifiedStudents({
+        paymentType: 'plataforma',
+        status: 'active',
+      }).filter(s => (s.balance || 0) > 0);
+
+      const convertedUnified = unifiedStudents.map(s => ({
+        id: s.id! + 1000000,
+        name: s.name,
+        phone: s.phone,
+        unit: s.unit,
+        platform: s.platform || 'wellhub',
+        balance: s.balance || 0,
+        status: s.status,
+        notes: s.notes,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        isUnified: true,
+      }));
+
+      const students = [...originalStudents, ...convertedUnified];
       res.json({
         total: students.length,
         students,
