@@ -317,42 +317,47 @@ export default function FinanceiroContent() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold">Controle Financeiro</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-2xl sm:text-3xl font-bold">Controle Financeiro</h1>
+            <p className="text-muted-foreground text-sm sm:text-base">
               Gerencie entradas, saidas e parcelamentos
             </p>
           </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
+              size="sm"
+              className="flex-1 sm:flex-none"
               onClick={() => {
                 resetInstallmentForm();
                 setShowInstallmentDialog(true);
               }}
             >
-              <CreditCard className="h-4 w-4 mr-2" />
-              Parcelamento
+              <CreditCard className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Parcelamento</span>
             </Button>
             <Button
+              size="sm"
+              className="flex-1 sm:flex-none"
               onClick={() => {
                 resetTransactionForm();
                 setEditingTransaction(null);
                 setShowTransactionDialog(true);
               }}
             >
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Transacao
+              <Plus className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Nova Transacao</span>
+              <span className="sm:hidden">Nova</span>
             </Button>
           </div>
         </div>
 
         {/* Month and Unit Selectors */}
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-            <SelectTrigger className="w-56">
+            <SelectTrigger className="w-full sm:w-56">
               <SelectValue placeholder="Selecione o mes" />
             </SelectTrigger>
             <SelectContent>
@@ -364,7 +369,7 @@ export default function FinanceiroContent() {
             </SelectContent>
           </Select>
           <Select value={filterUnit} onValueChange={setFilterUnit}>
-            <SelectTrigger className="w-44">
+            <SelectTrigger className="w-full sm:w-44">
               <Building2 className="h-4 w-4 mr-2" />
               <SelectValue placeholder="Unidade" />
             </SelectTrigger>
@@ -380,7 +385,7 @@ export default function FinanceiroContent() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Entradas</CardTitle>
@@ -469,9 +474,9 @@ export default function FinanceiroContent() {
 
           <TabsContent value="transactions" className="space-y-4">
             {/* Filters */}
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
               <Select value={filterType} onValueChange={setFilterType}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-full sm:w-40">
                   <SelectValue placeholder="Tipo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -481,7 +486,7 @@ export default function FinanceiroContent() {
                 </SelectContent>
               </Select>
               <Select value={filterCategory} onValueChange={setFilterCategory}>
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-full sm:w-48">
                   <SelectValue placeholder="Categoria" />
                 </SelectTrigger>
                 <SelectContent>
@@ -503,40 +508,40 @@ export default function FinanceiroContent() {
             {/* Transactions List */}
             <Card>
               <CardHeader>
-                <CardTitle>Transacoes do Mes</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">Transacoes do Mes</CardTitle>
                 <CardDescription>
                   {filteredTransactions.length} transacoes encontradas
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-3 sm:p-6">
                 <div className="space-y-3">
                   {filteredTransactions.map((t) => (
                     <div
                       key={t.id}
-                      className="flex items-center justify-between p-3 border rounded-lg"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border rounded-lg gap-3"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         {t.type === "income" ? (
-                          <ArrowUpCircle className="h-5 w-5 text-green-500" />
+                          <ArrowUpCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
                         ) : (
-                          <ArrowDownCircle className="h-5 w-5 text-red-500" />
+                          <ArrowDownCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
                         )}
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">{t.description}</p>
-                            <Badge variant="outline" className="text-xs">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium truncate">{t.description}</p>
+                            <Badge variant="outline" className="text-xs flex-shrink-0">
                               {getUnitLabel(t.unit)}
                             </Badge>
                           </div>
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-xs sm:text-sm text-muted-foreground">
                             {getCategoryLabel(t.category)} - {getPaymentMethodLabel(t.paymentMethod)}
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center justify-between sm:justify-end gap-4 ml-8 sm:ml-0">
                         <div className="text-right">
                           <p
-                            className={`font-bold ${
+                            className={`font-bold text-sm sm:text-base ${
                               t.type === "income" ? "text-green-600" : "text-red-600"
                             }`}
                           >
@@ -547,7 +552,7 @@ export default function FinanceiroContent() {
                             {new Date(t.date).toLocaleDateString("pt-BR")}
                           </p>
                         </div>
-                        <div className="flex gap-1">
+                        <div className="flex gap-1 flex-shrink-0">
                           <Button
                             variant="ghost"
                             size="sm"

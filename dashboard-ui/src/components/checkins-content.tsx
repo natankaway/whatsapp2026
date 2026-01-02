@@ -255,73 +255,74 @@ export default function CheckinsContent() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold">Controle de Check-ins</h1>
-            <p className="text-muted-foreground">
-              Gerencie alunos de plataformas (Wellhub, TotalPass, GuruPass)
+            <h1 className="text-2xl sm:text-3xl font-bold">Controle de Check-ins</h1>
+            <p className="text-muted-foreground text-sm sm:text-base">
+              Gerencie alunos de plataformas
             </p>
           </div>
-          <Button onClick={() => { resetStudentForm(); setEditingStudent(null); setShowStudentDialog(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Aluno
+          <Button size="sm" onClick={() => { resetStudentForm(); setEditingStudent(null); setShowStudentDialog(true); }}>
+            <Plus className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Novo Aluno</span>
+            <span className="sm:hidden">Novo</span>
           </Button>
         </div>
 
         {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-5">
+        <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Alunos</CardTitle>
+              <CardTitle className="text-xs sm:text-sm font-medium">Total</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{summary?.totalStudents || 0}</div>
+              <div className="text-xl sm:text-2xl font-bold">{summary?.totalStudents || 0}</div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Devendo</CardTitle>
+              <CardTitle className="text-xs sm:text-sm font-medium">Devendo</CardTitle>
               <AlertTriangle className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{summary?.totalOwing || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                {summary?.totalBalanceOwed || 0} check-ins devidos
+              <div className="text-xl sm:text-2xl font-bold text-red-600">{summary?.totalOwing || 0}</div>
+              <p className="text-xs text-muted-foreground hidden sm:block">
+                {summary?.totalBalanceOwed || 0} check-ins
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Com Creditos</CardTitle>
+              <CardTitle className="text-xs sm:text-sm font-medium">Creditos</CardTitle>
               <TrendingUp className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{summary?.totalWithCredits || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                {summary?.totalCreditsAvailable || 0} creditos disponiveis
+              <div className="text-xl sm:text-2xl font-bold text-green-600">{summary?.totalWithCredits || 0}</div>
+              <p className="text-xs text-muted-foreground hidden sm:block">
+                {summary?.totalCreditsAvailable || 0} disponiveis
               </p>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="hidden sm:block">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Zerados</CardTitle>
+              <CardTitle className="text-xs sm:text-sm font-medium">Zerados</CardTitle>
               <CheckCircle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-xl sm:text-2xl font-bold">
                 {(summary?.totalStudents || 0) - (summary?.totalOwing || 0) - (summary?.totalWithCredits || 0)}
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="hidden lg:block">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Transacoes Hoje</CardTitle>
+              <CardTitle className="text-xs sm:text-sm font-medium">Hoje</CardTitle>
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-xl sm:text-2xl font-bold">
                 {transactions.filter(t => t.date === new Date().toISOString().split("T")[0]).length}
               </div>
             </CardContent>
@@ -329,9 +330,9 @@ export default function CheckinsContent() {
         </div>
 
         {/* Filters */}
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
           <Select value={filterUnit} onValueChange={setFilterUnit}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-full sm:w-40">
               <SelectValue placeholder="Unidade" />
             </SelectTrigger>
             <SelectContent>
@@ -341,7 +342,7 @@ export default function CheckinsContent() {
             </SelectContent>
           </Select>
           <Select value={filterPlatform} onValueChange={setFilterPlatform}>
-            <SelectTrigger className="w-48">
+            <SelectTrigger className="w-full sm:w-48">
               <SelectValue placeholder="Plataforma" />
             </SelectTrigger>
             <SelectContent>
@@ -354,15 +355,15 @@ export default function CheckinsContent() {
         </div>
 
         <Tabs defaultValue="all" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="all">Todos ({filteredStudents.length})</TabsTrigger>
-            <TabsTrigger value="owing">
+          <TabsList className="w-full sm:w-auto overflow-x-auto flex">
+            <TabsTrigger value="all" className="text-xs sm:text-sm flex-1 sm:flex-none">Todos ({filteredStudents.length})</TabsTrigger>
+            <TabsTrigger value="owing" className="text-xs sm:text-sm flex-1 sm:flex-none">
               Devendo ({filteredStudents.filter(s => s.balance < 0).length})
             </TabsTrigger>
-            <TabsTrigger value="credits">
-              Com Creditos ({filteredStudents.filter(s => s.balance > 0).length})
+            <TabsTrigger value="credits" className="text-xs sm:text-sm flex-1 sm:flex-none">
+              Creditos ({filteredStudents.filter(s => s.balance > 0).length})
             </TabsTrigger>
-            <TabsTrigger value="history">Historico</TabsTrigger>
+            <TabsTrigger value="history" className="text-xs sm:text-sm flex-1 sm:flex-none">Historico</TabsTrigger>
           </TabsList>
 
           <TabsContent value="all" className="space-y-4">
