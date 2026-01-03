@@ -11,6 +11,43 @@ import { billingHandler } from '../handlers/billingHandler.js';
 import CONFIG from '../config/index.js';
 
 // =============================================================================
+// HELPER FUNCTIONS FOR USER PERMISSIONS
+// =============================================================================
+
+/**
+ * Verifica se o usuário tem acesso a uma unidade específica
+ */
+function canAccessUnit(req: Request, unitSlug: string): boolean {
+  const user = req.user;
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return user.units.includes(unitSlug);
+}
+
+/**
+ * Retorna as unidades que o usuário pode acessar
+ * Para admin, retorna todas as unidades
+ * Para gestor, retorna apenas as unidades atribuídas
+ */
+function getAllowedUnits(req: Request): string[] {
+  const user = req.user;
+  if (!user) return [];
+  if (user.role === 'admin') {
+    // Retorna todos os slugs de unidades
+    const units = sqliteService.getUnits();
+    return units.map(u => u.slug);
+  }
+  return user.units;
+}
+
+/**
+ * Verifica se o usuário é admin
+ */
+function isAdmin(req: Request): boolean {
+  return req.user?.role === 'admin';
+}
+
+// =============================================================================
 // DASHBOARD API ROUTES
 // =============================================================================
 
@@ -78,6 +115,7 @@ export function createDashboardRoutes(): Router {
   router.get('/bookings', (req: Request, res: Response) => {
     try {
       const { unit, date, unitId } = req.query;
+      const allowedUnits = getAllowedUnits(req);
 
       // Support both old format (unit + date) and new format (date + unitId)
       if (date) {
@@ -91,6 +129,13 @@ export function createDashboardRoutes(): Router {
             res.status(400).json({ error: 'Unidade não encontrada' });
             return;
           }
+
+          // Verificar permissão
+          if (!canAccessUnit(req, targetUnit.slug)) {
+            res.status(403).json({ error: 'Acesso negado a esta unidade' });
+            return;
+          }
+
           const bookings = sqliteService.getBookingsByDate(targetUnit.slug as 'recreio' | 'bangu', dateStr);
           res.json(bookings.map(b => ({
             ...b,
@@ -100,7 +145,12 @@ export function createDashboardRoutes(): Router {
         }
 
         if (unit) {
-          // Old format
+          // Old format - verificar permissão
+          if (!canAccessUnit(req, unit as string)) {
+            res.status(403).json({ error: 'Acesso negado a esta unidade' });
+            return;
+          }
+
           const bookings = sqliteService.getBookingsByDate(unit as 'recreio' | 'bangu', dateStr);
           res.json({
             unit,
@@ -111,13 +161,19 @@ export function createDashboardRoutes(): Router {
           return;
         }
 
-        // If only date is provided, return all bookings for that date
-        const recreioBookings = sqliteService.getBookingsByDate('recreio', dateStr);
-        const banguBookings = sqliteService.getBookingsByDate('bangu', dateStr);
-        const allBookings = [
-          ...recreioBookings.map(b => ({ ...b, unitName: 'Recreio' })),
-          ...banguBookings.map(b => ({ ...b, unitName: 'Bangu' })),
-        ];
+        // If only date is provided, return bookings for allowed units only
+        const allBookings: { unitName: string }[] = [];
+
+        if (allowedUnits.includes('recreio')) {
+          const recreioBookings = sqliteService.getBookingsByDate('recreio', dateStr);
+          allBookings.push(...recreioBookings.map(b => ({ ...b, unitName: 'Recreio' })));
+        }
+
+        if (allowedUnits.includes('bangu')) {
+          const banguBookings = sqliteService.getBookingsByDate('bangu', dateStr);
+          allBookings.push(...banguBookings.map(b => ({ ...b, unitName: 'Bangu' })));
+        }
+
         res.json(allBookings);
         return;
       }
@@ -144,6 +200,12 @@ export function createDashboardRoutes(): Router {
       const unit = units.find(u => u.id === unitId);
       if (!unit) {
         res.status(400).json({ error: 'Unidade não encontrada' });
+        return;
+      }
+
+      // Verificar permissão de acesso à unidade
+      if (!canAccessUnit(req, unit.slug)) {
+        res.status(403).json({ error: 'Acesso negado a esta unidade' });
         return;
       }
 
@@ -208,12 +270,17 @@ export function createDashboardRoutes(): Router {
     }
   });
 
-  router.get('/bookings/today', (_req: Request, res: Response) => {
+  router.get('/bookings/today', (req: Request, res: Response) => {
     try {
       const today = new Date().toISOString().split('T')[0] ?? '';
+      const allowedUnits = getAllowedUnits(req);
 
-      const recreioBookings = sqliteService.getBookingsByDate('recreio', today);
-      const banguBookings = sqliteService.getBookingsByDate('bangu', today);
+      const recreioBookings = allowedUnits.includes('recreio')
+        ? sqliteService.getBookingsByDate('recreio', today)
+        : [];
+      const banguBookings = allowedUnits.includes('bangu')
+        ? sqliteService.getBookingsByDate('bangu', today)
+        : [];
 
       res.json({
         date: today,
@@ -233,9 +300,10 @@ export function createDashboardRoutes(): Router {
     }
   });
 
-  router.get('/bookings/week', (_req: Request, res: Response) => {
+  router.get('/bookings/week', (req: Request, res: Response) => {
     try {
       const today = new Date();
+      const allowedUnits = getAllowedUnits(req);
       const weekDays: Array<{
         date: string;
         dayName: string;
@@ -251,8 +319,12 @@ export function createDashboardRoutes(): Router {
         date.setDate(today.getDate() + i);
         const dateStr = date.toISOString().split('T')[0] ?? '';
 
-        const recreio = sqliteService.getBookingsByDate('recreio', dateStr).length;
-        const bangu = sqliteService.getBookingsByDate('bangu', dateStr).length;
+        const recreio = allowedUnits.includes('recreio')
+          ? sqliteService.getBookingsByDate('recreio', dateStr).length
+          : 0;
+        const bangu = allowedUnits.includes('bangu')
+          ? sqliteService.getBookingsByDate('bangu', dateStr).length
+          : 0;
 
         weekDays.push({
           date: dateStr,
@@ -686,9 +758,16 @@ export function createDashboardRoutes(): Router {
   // UNITS (Gerenciamento de Unidades)
   // ===========================================================================
 
-  router.get('/units', (_req: Request, res: Response) => {
+  router.get('/units', (req: Request, res: Response) => {
     try {
-      const units = sqliteService.getUnits();
+      let units = sqliteService.getUnits();
+
+      // Filtrar unidades baseado nas permissões do usuário
+      if (!isAdmin(req)) {
+        const allowedUnits = getAllowedUnits(req);
+        units = units.filter(u => allowedUnits.includes(u.slug));
+      }
+
       res.json({
         total: units.length,
         units,
@@ -713,6 +792,12 @@ export function createDashboardRoutes(): Router {
         return;
       }
 
+      // Verificar permissão de acesso
+      if (!canAccessUnit(req, unit.slug)) {
+        res.status(403).json({ error: 'Acesso negado a esta unidade' });
+        return;
+      }
+
       res.json(unit);
     } catch (error) {
       logger.error('[Dashboard] Erro ao buscar unidade', error);
@@ -722,6 +807,12 @@ export function createDashboardRoutes(): Router {
 
   router.post('/units', (req: Request, res: Response) => {
     try {
+      // Apenas admin pode criar unidades
+      if (!isAdmin(req)) {
+        res.status(403).json({ error: 'Apenas administradores podem criar unidades' });
+        return;
+      }
+
       const { slug, name, address, location, workingDays, schedules, schedulesText, saturdayClass, prices, platforms, whatsappGroupId } = req.body;
 
       if (!slug || !name || !address || !location) {
@@ -758,6 +849,12 @@ export function createDashboardRoutes(): Router {
 
   router.put('/units/:id', (req: Request, res: Response) => {
     try {
+      // Apenas admin pode atualizar unidades
+      if (!isAdmin(req)) {
+        res.status(403).json({ error: 'Apenas administradores podem atualizar unidades' });
+        return;
+      }
+
       const id = parseInt(req.params.id ?? '0', 10);
       if (isNaN(id)) {
         res.status(400).json({ error: 'ID inválido' });
@@ -795,6 +892,12 @@ export function createDashboardRoutes(): Router {
 
   router.delete('/units/:id', (req: Request, res: Response) => {
     try {
+      // Apenas admin pode excluir unidades
+      if (!isAdmin(req)) {
+        res.status(403).json({ error: 'Apenas administradores podem excluir unidades' });
+        return;
+      }
+
       const id = parseInt(req.params.id ?? '0', 10);
       if (isNaN(id)) {
         res.status(400).json({ error: 'ID inválido' });
@@ -1249,10 +1352,19 @@ export function createDashboardRoutes(): Router {
   // POLL SCHEDULES (Agendamentos de Enquetes Automáticas)
   // ===========================================================================
 
-  router.get('/poll-schedules', (_req: Request, res: Response) => {
+  router.get('/poll-schedules', (req: Request, res: Response) => {
     try {
-      const schedules = sqliteService.getPollSchedules();
+      let schedules = sqliteService.getPollSchedules();
       const scheduledJobs = pollHandler.getScheduledJobs();
+      const allowedUnits = getAllowedUnits(req);
+
+      // Filtrar por unidades permitidas se não for admin
+      // 'custom' é visível para todos
+      if (!isAdmin(req)) {
+        schedules = schedules.filter(s =>
+          s.targetGroup === 'custom' || allowedUnits.includes(s.targetGroup)
+        );
+      }
 
       res.json({
         total: schedules.length,
@@ -1593,19 +1705,36 @@ export function createDashboardRoutes(): Router {
   router.get('/students', (req: Request, res: Response) => {
     try {
       const { unit, status } = req.query;
+      const allowedUnits = getAllowedUnits(req);
+
+      // Se uma unidade específica foi solicitada, verificar permissão
+      if (unit && !canAccessUnit(req, unit as string)) {
+        res.status(403).json({ error: 'Acesso negado a esta unidade' });
+        return;
+      }
 
       // Buscar alunos da tabela original
-      const originalStudents = sqliteService.getStudents({
+      let originalStudents = sqliteService.getStudents({
         unit: unit as string,
         status: status as string,
       });
 
+      // Filtrar por unidades permitidas se não for admin
+      if (!isAdmin(req)) {
+        originalStudents = originalStudents.filter(s => allowedUnits.includes(s.unit));
+      }
+
       // Buscar alunos unificados do tipo mensalidade
-      const unifiedStudents = sqliteService.getUnifiedStudents({
+      let unifiedStudents = sqliteService.getUnifiedStudents({
         unit: unit as string,
         paymentType: 'mensalidade',
         status: status as string,
       });
+
+      // Filtrar por unidades permitidas se não for admin
+      if (!isAdmin(req)) {
+        unifiedStudents = unifiedStudents.filter(s => allowedUnits.includes(s.unit));
+      }
 
       // Converter alunos unificados para formato de mensalidade
       const convertedUnified = unifiedStudents.map(s => ({
@@ -2172,20 +2301,37 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
   router.get('/checkin-students', (req: Request, res: Response) => {
     try {
       const { unit, platform, status } = req.query;
+      const allowedUnits = getAllowedUnits(req);
+
+      // Se uma unidade específica foi solicitada, verificar permissão
+      if (unit && !canAccessUnit(req, unit as string)) {
+        res.status(403).json({ error: 'Acesso negado a esta unidade' });
+        return;
+      }
 
       // Buscar alunos da tabela original
-      const originalStudents = sqliteService.getCheckinStudents({
+      let originalStudents = sqliteService.getCheckinStudents({
         unit: unit as string,
         platform: platform as string,
         status: status as string,
       });
 
+      // Filtrar por unidades permitidas se não for admin
+      if (!isAdmin(req)) {
+        originalStudents = originalStudents.filter(s => allowedUnits.includes(s.unit));
+      }
+
       // Buscar alunos unificados do tipo plataforma
-      const unifiedStudents = sqliteService.getUnifiedStudents({
+      let unifiedStudents = sqliteService.getUnifiedStudents({
         unit: unit as string,
         paymentType: 'plataforma',
         status: status as string,
       });
+
+      // Filtrar por unidades permitidas se não for admin
+      if (!isAdmin(req)) {
+        unifiedStudents = unifiedStudents.filter(s => allowedUnits.includes(s.unit));
+      }
 
       // Filtrar por plataforma se especificado
       const filteredUnified = platform
@@ -2449,13 +2595,25 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
   router.get('/unified-students', (req: Request, res: Response) => {
     try {
       const { unit, paymentType, status, search } = req.query;
+      const allowedUnits = getAllowedUnits(req);
 
-      const students = sqliteService.getUnifiedStudents({
+      // Se uma unidade específica foi solicitada, verificar permissão
+      if (unit && !canAccessUnit(req, unit as string)) {
+        res.status(403).json({ error: 'Acesso negado a esta unidade' });
+        return;
+      }
+
+      let students = sqliteService.getUnifiedStudents({
         unit: unit as string,
         paymentType: paymentType as string,
         status: status as string,
         search: search as string,
       });
+
+      // Filtrar por unidades permitidas se não for admin
+      if (!isAdmin(req)) {
+        students = students.filter(s => allowedUnits.includes(s.unit));
+      }
 
       res.json({
         total: students.length,
@@ -2724,8 +2882,15 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
   router.get('/cash-transactions', (req: Request, res: Response) => {
     try {
       const { unit, type, category, startDate, endDate, installmentId } = req.query;
+      const allowedUnits = getAllowedUnits(req);
 
-      const transactions = sqliteService.getCashTransactions({
+      // Se uma unidade específica foi solicitada, verificar permissão (exceto 'geral')
+      if (unit && unit !== 'geral' && !canAccessUnit(req, unit as string)) {
+        res.status(403).json({ error: 'Acesso negado a esta unidade' });
+        return;
+      }
+
+      let transactions = sqliteService.getCashTransactions({
         unit: unit as string,
         type: type as string,
         category: category as string,
@@ -2733,6 +2898,14 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
         endDate: endDate as string,
         installmentId: installmentId ? parseInt(installmentId as string, 10) : undefined,
       });
+
+      // Filtrar por unidades permitidas se não for admin
+      // Transações 'geral' são visíveis para todos
+      if (!isAdmin(req)) {
+        transactions = transactions.filter(t =>
+          t.unit === 'geral' || allowedUnits.includes(t.unit)
+        );
+      }
 
       const totalIncome = transactions
         .filter(t => t.type === 'income')
