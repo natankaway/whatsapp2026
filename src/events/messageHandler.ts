@@ -73,6 +73,24 @@ const lidToJidMap: Map<string, string> = new Map();
 // Mapa: chatId -> timestamp da última interação
 const activeChats: Map<string, number> = new Map();
 
+// Mapa: número normalizado -> chatId (para resolver quando não há mapeamento LID/JID)
+const phoneToIdMap: Map<string, string> = new Map();
+
+/**
+ * Extrai número de telefone de um JID
+ * @param jid - JID no formato 5521999999999@s.whatsapp.net
+ * @returns número de telefone ou null se não for possível extrair
+ */
+function extractPhoneFromJid(jid: string): string | null {
+  if (!jid.endsWith('@s.whatsapp.net')) return null;
+  const phone = jid.replace('@s.whatsapp.net', '');
+  // Validar que é um número
+  if (/^\d+$/.test(phone)) {
+    return phone;
+  }
+  return null;
+}
+
 /**
  * Limita o tamanho de um Map removendo as entradas mais antigas
  */
@@ -151,6 +169,7 @@ setInterval(() => {
   enforceMapLimit(jidToLidMap, MAX_MAP_SIZE, 'jidToLidMap');
   enforceMapLimit(lidToJidMap, MAX_MAP_SIZE, 'lidToJidMap');
   enforceMapLimit(rateLimits, MAX_MAP_SIZE, 'rateLimits');
+  enforceMapLimit(phoneToIdMap, MAX_MAP_SIZE, 'phoneToIdMap');
   enforceActiveChatsLimit();
 
   if (cleanedChats > 0 || cleanedMappings > 0 || cleanedRateLimits > 0) {
@@ -313,10 +332,18 @@ async function processMessage(
       pauseManager.resumeBot(remoteJid);
       if (isLid) {
         const jid = lidToJidMap.get(remoteJid);
-        if (jid) pauseManager.resumeBot(jid);
+        if (jid) {
+          pauseManager.resumeBot(jid);
+          // Remover pausa por telefone
+          const phone = extractPhoneFromJid(jid);
+          if (phone) pauseManager.resumeBot(`phone:${phone}`);
+        }
       } else {
         const lid = jidToLidMap.get(remoteJid);
         if (lid) pauseManager.resumeBot(lid);
+        // Remover pausa por telefone
+        const phone = extractPhoneFromJid(remoteJid);
+        if (phone) pauseManager.resumeBot(`phone:${phone}`);
       }
 
       await sendText(sock, chatId, '🤖 *Bot Reativado!* Voltando ao automático...');
@@ -335,10 +362,27 @@ async function processMessage(
       // Se temos mapeamento, pausar também o outro ID
       if (isLid) {
         const jid = lidToJidMap.get(remoteJid);
-        if (jid) pauseManager.pauseBot(jid);
+        if (jid) {
+          pauseManager.pauseBot(jid);
+          // Também pausar pelo número de telefone
+          const phone = extractPhoneFromJid(jid);
+          if (phone) {
+            pauseManager.pauseBot(`phone:${phone}`);
+            phoneToIdMap.set(phone, jid);
+            logger.debug(`[${correlationId}] Pausa por telefone: ${phone}`);
+          }
+        }
       } else {
         const lid = jidToLidMap.get(remoteJid);
         if (lid) pauseManager.pauseBot(lid);
+
+        // Pausar também pelo número de telefone para garantir sincronização
+        const phone = extractPhoneFromJid(remoteJid);
+        if (phone) {
+          pauseManager.pauseBot(`phone:${phone}`);
+          phoneToIdMap.set(phone, remoteJid);
+          logger.debug(`[${correlationId}] Pausa por telefone: ${phone}`);
+        }
       }
 
       await sendText(
@@ -414,10 +458,39 @@ async function processMessage(
   // VERIFICAR SE BOT ESTÁ PAUSADO
   // ==========================================================================
   // Verificar pausa para QUALQUER ID relacionado
-  const isPausedForChat = pauseManager.isPaused(chatId) ||
-                          pauseManager.isPaused(remoteJid) ||
-                          (isLid && lidToJidMap.has(remoteJid) && pauseManager.isPaused(lidToJidMap.get(remoteJid)!)) ||
-                          (!isLid && jidToLidMap.has(remoteJid) && pauseManager.isPaused(jidToLidMap.get(remoteJid)!));
+  let isPausedForChat = pauseManager.isPaused(chatId) ||
+                        pauseManager.isPaused(remoteJid) ||
+                        (isLid && lidToJidMap.has(remoteJid) && pauseManager.isPaused(lidToJidMap.get(remoteJid)!)) ||
+                        (!isLid && jidToLidMap.has(remoteJid) && pauseManager.isPaused(jidToLidMap.get(remoteJid)!));
+
+  // Se não encontrou pausa pelos IDs, verificar pelo número de telefone
+  // Isso cobre o caso onde o atendente respondeu via JID mas cliente manda via LID sem mapeamento
+  if (!isPausedForChat && !isLid) {
+    const phone = extractPhoneFromJid(remoteJid);
+    if (phone && pauseManager.isPaused(`phone:${phone}`)) {
+      isPausedForChat = true;
+      // Criar mapeamento para futuras verificações
+      const existingId = phoneToIdMap.get(phone);
+      if (existingId && existingId !== remoteJid) {
+        // Sincronizar pausa
+        pauseManager.pauseBot(remoteJid);
+        logger.info(`[${correlationId}] Pausa sincronizada via telefone: ${phone} -> ${remoteJid}`);
+      }
+    }
+  }
+
+  // Para LID: verificar se existe um telefone associado via mapeamento
+  if (!isPausedForChat && isLid) {
+    const mappedJid = lidToJidMap.get(remoteJid);
+    if (mappedJid) {
+      const phone = extractPhoneFromJid(mappedJid);
+      if (phone && pauseManager.isPaused(`phone:${phone}`)) {
+        isPausedForChat = true;
+        pauseManager.pauseBot(remoteJid);
+        logger.info(`[${correlationId}] Pausa sincronizada via mapeamento LID: ${remoteJid}`);
+      }
+    }
+  }
 
   if (isPausedForChat) {
     logger.info(`[${correlationId}] [CLIENTE] Bot pausado para ${chatId}`);
@@ -428,10 +501,19 @@ async function processMessage(
       pauseManager.resumeBot(chatId);
       pauseManager.resumeBot(remoteJid);
       if (isLid && lidToJidMap.has(remoteJid)) {
-        pauseManager.resumeBot(lidToJidMap.get(remoteJid)!);
+        const mappedJid = lidToJidMap.get(remoteJid)!;
+        pauseManager.resumeBot(mappedJid);
+        // Remover pausa por telefone também
+        const phone = extractPhoneFromJid(mappedJid);
+        if (phone) pauseManager.resumeBot(`phone:${phone}`);
       }
       if (!isLid && jidToLidMap.has(remoteJid)) {
         pauseManager.resumeBot(jidToLidMap.get(remoteJid)!);
+      }
+      // Remover pausa por telefone se for JID
+      if (!isLid) {
+        const phone = extractPhoneFromJid(remoteJid);
+        if (phone) pauseManager.resumeBot(`phone:${phone}`);
       }
 
       await sendText(sock, chatId, '🤖 Bot reativado!');
@@ -663,12 +745,14 @@ export function getMemoryStats(): {
   activeChats: number;
   jidToLidMappings: number;
   lidToJidMappings: number;
+  phoneToIdMappings: number;
   rateLimits: number;
 } {
   return {
     activeChats: activeChats.size,
     jidToLidMappings: jidToLidMap.size,
     lidToJidMappings: lidToJidMap.size,
+    phoneToIdMappings: phoneToIdMap.size,
     rateLimits: rateLimits.size,
   };
 }

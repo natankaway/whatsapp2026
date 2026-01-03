@@ -14,6 +14,7 @@ import CONFIG from '../config/index.js';
 import logger from '../utils/logger.js';
 import sessionManager from '../utils/sessionManager.js';
 import { EventEmitter } from '../events/eventEmitter.js';
+import { mapLidToJid } from '../events/messageHandler.js';
 import type { WhatsAppSocket } from '../types/index.js';
 
 class WhatsAppService {
@@ -115,9 +116,10 @@ class WhatsAppService {
     // Capturar mapeamento de contatos (LID <-> JID)
     this.sock.ev.on('contacts.update', async (contacts) => {
       for (const contact of contacts) {
-        // Log para debug - ver estrutura do contato
-        if (contact.id || contact.lid) {
-          logger.debug(`Contato atualizado: id=${contact.id}, lid=${contact.lid}`);
+        // Salvar mapeamento LID <-> JID quando disponível
+        if (contact.id && contact.lid) {
+          mapLidToJid(contact.lid, contact.id);
+          logger.debug(`Mapeamento LID-JID salvo: ${contact.lid} <-> ${contact.id}`);
         }
       }
     });
