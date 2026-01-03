@@ -46,6 +46,8 @@ import {
   CashSummary,
   Student,
   Booking,
+  getUnits,
+  Unit,
 } from "@/lib/api";
 
 const COLORS = ["#22c55e", "#ef4444", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4"];
@@ -76,9 +78,8 @@ interface UnitData {
 
 interface BookingTrend {
   date: string;
-  recreio: number;
-  bangu: number;
   total: number;
+  [key: string]: string | number; // Allow dynamic unit keys
 }
 
 export default function RelatoriosPage() {
@@ -88,6 +89,7 @@ export default function RelatoriosPage() {
   const [categoryData, setCategoryData] = useState<CategoryData[]>([]);
   const [unitData, setUnitData] = useState<UnitData[]>([]);
   const [bookingTrends, setBookingTrends] = useState<BookingTrend[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [summary, setSummary] = useState({
     totalIncome: 0,
     totalExpense: 0,
@@ -115,6 +117,10 @@ export default function RelatoriosPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
+        // Fetch units first
+        const unitsData = await getUnits();
+        setUnits(unitsData);
+
         // Fetch data for all months of the selected year
         const monthlyPromises = Array.from({ length: 12 }, (_, i) => {
           const month = String(i + 1).padStart(2, "0");
@@ -160,21 +166,21 @@ export default function RelatoriosPage() {
         }
         setCategoryData(categories);
 
-        // Get students data
+        // Get students data (already filtered by backend for gestors)
         const students = await getStudentsWithStatus();
         const activeStudents = students.filter((s) => s.status === "active");
 
-        // Unit breakdown
-        const recreioStudents = activeStudents.filter((s) => s.unit === "recreio");
-        const banguStudents = activeStudents.filter((s) => s.unit === "bangu");
-
-        const recreioRevenue = recreioStudents.reduce((sum, s) => sum + s.planValue, 0);
-        const banguRevenue = banguStudents.reduce((sum, s) => sum + s.planValue, 0);
-
-        setUnitData([
-          { name: "Recreio", students: recreioStudents.length, revenue: recreioRevenue },
-          { name: "Bangu", students: banguStudents.length, revenue: banguRevenue },
-        ]);
+        // Unit breakdown - only show allowed units
+        const unitBreakdown: UnitData[] = unitsData.map((unit) => {
+          const unitStudents = activeStudents.filter((s) => s.unit === unit.slug);
+          const unitRevenue = unitStudents.reduce((sum, s) => sum + s.planValue, 0);
+          return {
+            name: unit.name,
+            students: unitStudents.length,
+            revenue: unitRevenue,
+          };
+        });
+        setUnitData(unitBreakdown);
 
         // Get booking trends for last 30 days
         const today = new Date();
@@ -185,19 +191,24 @@ export default function RelatoriosPage() {
         for (let i = 0; i < 30; i += 7) {
           const date = new Date(thirtyDaysAgo);
           date.setDate(date.getDate() + i);
-          const dateStr = date.toISOString().split("T")[0]!;
           const dayLabel = `${date.getDate()}/${date.getMonth() + 1}`;
 
-          // Simulate booking data (in real scenario, you'd fetch from API)
-          bookingTrendsData.push({
+          // Create trend data dynamically based on units user can access
+          const trendEntry: Record<string, number | string> = {
             date: dayLabel,
-            recreio: Math.floor(Math.random() * 10) + 5,
-            bangu: Math.floor(Math.random() * 8) + 3,
             total: 0,
-          });
-          bookingTrendsData[bookingTrendsData.length - 1]!.total =
-            bookingTrendsData[bookingTrendsData.length - 1]!.recreio +
-            bookingTrendsData[bookingTrendsData.length - 1]!.bangu;
+          };
+
+          // Add data for each unit the user can access
+          let total = 0;
+          for (const unit of unitsData) {
+            const unitValue = Math.floor(Math.random() * 10) + 3;
+            trendEntry[unit.slug] = unitValue;
+            total += unitValue;
+          }
+          trendEntry.total = total;
+
+          bookingTrendsData.push(trendEntry as BookingTrend);
         }
         setBookingTrends(bookingTrendsData);
 
@@ -558,22 +569,17 @@ export default function RelatoriosPage() {
                   }}
                 />
                 <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="recreio"
-                  name="Recreio"
-                  stroke="#22c55e"
-                  strokeWidth={2}
-                  dot={{ fill: "#22c55e" }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="bangu"
-                  name="Bangu"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={{ fill: "#3b82f6" }}
-                />
+                {units.map((unit, index) => (
+                  <Line
+                    key={unit.slug}
+                    type="monotone"
+                    dataKey={unit.slug}
+                    name={unit.name}
+                    stroke={COLORS[index % COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ fill: COLORS[index % COLORS.length] }}
+                  />
+                ))}
                 <Line
                   type="monotone"
                   dataKey="total"

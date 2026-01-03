@@ -2366,15 +2366,16 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
     }
   });
 
-  router.get('/checkin-students/summary', (_req: Request, res: Response) => {
+  router.get('/checkin-students/summary', (req: Request, res: Response) => {
     try {
-      const originalSummary = sqliteService.getCheckinSummary();
+      const allowedUnits = getAllowedUnits(req);
 
-      // Contar alunos unificados do tipo plataforma
-      const unifiedStudents = sqliteService.getUnifiedStudents({
+      // Obter alunos unificados do tipo plataforma e filtrar por unidades permitidas
+      const allUnifiedStudents = sqliteService.getUnifiedStudents({
         paymentType: 'plataforma',
         status: 'active',
       });
+      const unifiedStudents = allUnifiedStudents.filter(s => allowedUnits.includes(s.unit));
 
       const unifiedOwing = unifiedStudents.filter(s => (s.balance || 0) < 0).length;
       const unifiedWithCredits = unifiedStudents.filter(s => (s.balance || 0) > 0).length;
@@ -2386,11 +2387,11 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
         .reduce((acc, s) => acc + (s.balance || 0), 0);
 
       res.json({
-        totalStudents: originalSummary.totalStudents + unifiedStudents.length,
-        totalOwing: originalSummary.totalOwing + unifiedOwing,
-        totalWithCredits: originalSummary.totalWithCredits + unifiedWithCredits,
-        totalBalanceOwed: originalSummary.totalBalanceOwed + unifiedBalanceOwed,
-        totalCreditsAvailable: originalSummary.totalCreditsAvailable + unifiedCreditsAvailable,
+        totalStudents: unifiedStudents.length,
+        totalOwing: unifiedOwing,
+        totalWithCredits: unifiedWithCredits,
+        totalBalanceOwed: unifiedBalanceOwed,
+        totalCreditsAvailable: unifiedCreditsAvailable,
       });
     } catch (error) {
       logger.error('[Dashboard] Erro ao obter resumo de check-ins', error);
@@ -2625,9 +2626,29 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
     }
   });
 
-  router.get('/unified-students/summary', (_req: Request, res: Response) => {
+  router.get('/unified-students/summary', (req: Request, res: Response) => {
     try {
-      const summary = sqliteService.getUnifiedStudentsSummary();
+      const allowedUnits = getAllowedUnits(req);
+
+      // Obter todos os alunos unificados e filtrar por unidades permitidas
+      const allStudents = sqliteService.getUnifiedStudents({});
+      const students = allStudents.filter(s => allowedUnits.includes(s.unit));
+
+      // Calcular resumo baseado nos alunos filtrados
+      const summary = {
+        total: students.length,
+        mensalidade: students.filter(s => s.paymentType === 'mensalidade').length,
+        plataforma: students.filter(s => s.paymentType === 'plataforma').length,
+        active: students.filter(s => s.status === 'active').length,
+        inactive: students.filter(s => s.status === 'inactive').length,
+        byUnit: {} as Record<string, number>,
+      };
+
+      // Contar por unidade (apenas unidades permitidas)
+      for (const unit of allowedUnits) {
+        summary.byUnit[unit] = students.filter(s => s.unit === unit).length;
+      }
+
       res.json(summary);
     } catch (error) {
       logger.error('[Dashboard] Erro ao obter resumo de alunos unificados', error);
@@ -2930,14 +2951,85 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
   router.get('/cash-transactions/summary', (req: Request, res: Response) => {
     try {
       const { unit, startDate, endDate } = req.query;
+      const allowedUnits = getAllowedUnits(req);
 
-      const summary = sqliteService.getCashSummary({
-        unit: unit as string,
+      // Verificar se a unidade solicitada é permitida
+      if (unit && unit !== 'geral' && !canAccessUnit(req, unit as string)) {
+        res.status(403).json({ error: 'Acesso negado a esta unidade' });
+        return;
+      }
+
+      // Se for admin ou se a unidade foi especificada, usar o comportamento padrão
+      if (isAdmin(req) || unit) {
+        const summary = sqliteService.getCashSummary({
+          unit: unit as string,
+          startDate: startDate as string,
+          endDate: endDate as string,
+        });
+        res.json(summary);
+        return;
+      }
+
+      // Para gestores sem unidade especificada, calcular resumo agregado das unidades permitidas
+      let totalIncome = 0;
+      let totalExpense = 0;
+      const byCategory: Record<string, { income: number; expense: number }> = {};
+      const byPaymentMethod: Record<string, number> = {};
+
+      for (const unitSlug of allowedUnits) {
+        const unitSummary = sqliteService.getCashSummary({
+          unit: unitSlug,
+          startDate: startDate as string,
+          endDate: endDate as string,
+        });
+
+        totalIncome += unitSummary.totalIncome;
+        totalExpense += unitSummary.totalExpense;
+
+        // Agregar categorias
+        for (const [cat, values] of Object.entries(unitSummary.byCategory || {})) {
+          if (!byCategory[cat]) {
+            byCategory[cat] = { income: 0, expense: 0 };
+          }
+          byCategory[cat].income += values.income;
+          byCategory[cat].expense += values.expense;
+        }
+
+        // Agregar métodos de pagamento
+        for (const [method, value] of Object.entries(unitSummary.byPaymentMethod || {})) {
+          byPaymentMethod[method] = (byPaymentMethod[method] || 0) + value;
+        }
+      }
+
+      // Também incluir "geral" que é acessível a todos
+      const geralSummary = sqliteService.getCashSummary({
+        unit: 'geral',
         startDate: startDate as string,
         endDate: endDate as string,
       });
 
-      res.json(summary);
+      totalIncome += geralSummary.totalIncome;
+      totalExpense += geralSummary.totalExpense;
+
+      for (const [cat, values] of Object.entries(geralSummary.byCategory || {})) {
+        if (!byCategory[cat]) {
+          byCategory[cat] = { income: 0, expense: 0 };
+        }
+        byCategory[cat].income += values.income;
+        byCategory[cat].expense += values.expense;
+      }
+
+      for (const [method, value] of Object.entries(geralSummary.byPaymentMethod || {})) {
+        byPaymentMethod[method] = (byPaymentMethod[method] || 0) + value;
+      }
+
+      res.json({
+        totalIncome,
+        totalExpense,
+        balance: totalIncome - totalExpense,
+        byCategory,
+        byPaymentMethod,
+      });
     } catch (error) {
       logger.error('[Dashboard] Erro ao obter resumo do caixa', error);
       res.status(500).json({ error: 'Erro ao obter resumo' });

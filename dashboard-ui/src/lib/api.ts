@@ -1101,3 +1101,28 @@ export const canAccessUnit = (unitSlug: string): boolean => {
   if (cachedUser.role === 'admin') return true;
   return cachedUser.units.includes(unitSlug);
 };
+
+// Get list of units the user can access
+export const getAllowedUnits = (): string[] => {
+  if (!cachedUser) return [];
+  if (cachedUser.role === 'admin') {
+    // Admins can access all units - return common ones
+    return ['recreio', 'bangu'];
+  }
+  return cachedUser.units;
+};
+
+// Get allowed cash units (includes 'geral' which is accessible to all)
+export const getAllowedCashUnits = (): Array<{ value: string; label: string }> => {
+  const allowedUnits = getAllowedUnits();
+  const cashUnits: Array<{ value: string; label: string }> = [];
+
+  // Add user's allowed units
+  for (const u of CASH_UNITS) {
+    if (u.value === 'geral' || allowedUnits.includes(u.value)) {
+      cashUnits.push(u);
+    }
+  }
+
+  return cashUnits;
+};

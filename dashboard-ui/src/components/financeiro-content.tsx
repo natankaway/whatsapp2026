@@ -53,6 +53,8 @@ import {
   CASH_CATEGORIES,
   PAYMENT_METHODS,
   CASH_UNITS,
+  getAllowedCashUnits,
+  isAdmin,
 } from "@/lib/api";
 import { Building2 } from "lucide-react";
 
@@ -95,6 +97,14 @@ export default function FinanceiroContent() {
   const [showPayInstallmentDialog, setShowPayInstallmentDialog] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
   const [selectedInstallment, setSelectedInstallment] = useState<Installment | null>(null);
+  const [allowedCashUnits, setAllowedCashUnits] = useState<Array<{ value: string; label: string }>>(CASH_UNITS);
+  const [userIsAdmin, setUserIsAdmin] = useState(false);
+
+  // Update allowed units when component mounts (client side only)
+  useEffect(() => {
+    setAllowedCashUnits(getAllowedCashUnits());
+    setUserIsAdmin(isAdmin());
+  }, []);
 
   // Estados para valores formatados
   const [transactionAmountDisplay, setTransactionAmountDisplay] = useState("0,00");
@@ -141,10 +151,10 @@ export default function FinanceiroContent() {
         getInstallments({ unit: unitFilter }),
       ]);
 
-      // Fetch summary for each unit to show separate balances
+      // Fetch summary for each unit the user can access
       const unitSummaries: Record<string, CashSummary> = {};
       await Promise.all(
-        CASH_UNITS.map(async (u) => {
+        allowedCashUnits.map(async (u) => {
           const unitSum = await getCashSummary({ unit: u.value, startDate, endDate });
           unitSummaries[u.value] = unitSum;
         })
@@ -404,7 +414,7 @@ export default function FinanceiroContent() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas Unidades</SelectItem>
-              {CASH_UNITS.map((u) => (
+              {allowedCashUnits.map((u) => (
                 <SelectItem key={u.value} value={u.value}>
                   {u.label}
                 </SelectItem>
@@ -465,8 +475,8 @@ export default function FinanceiroContent() {
 
         {/* Unit Balances - Only show when viewing all units */}
         {filterUnit === "all" && (
-          <div className="grid gap-4 md:grid-cols-3">
-            {CASH_UNITS.map((unit) => {
+          <div className={`grid gap-4 ${allowedCashUnits.length === 1 ? 'md:grid-cols-1' : allowedCashUnits.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+            {allowedCashUnits.map((unit) => {
               const unitSum = summaryByUnit[unit.value];
               const balance = unitSum?.balance || 0;
               return (
@@ -762,7 +772,7 @@ export default function FinanceiroContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CASH_UNITS.map((u) => (
+                    {allowedCashUnits.map((u) => (
                       <SelectItem key={u.value} value={u.value}>
                         {u.label}
                       </SelectItem>
@@ -927,7 +937,7 @@ export default function FinanceiroContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CASH_UNITS.map((u) => (
+                    {allowedCashUnits.map((u) => (
                       <SelectItem key={u.value} value={u.value}>
                         {u.label}
                       </SelectItem>

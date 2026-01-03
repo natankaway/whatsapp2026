@@ -46,6 +46,8 @@ import {
   CheckinStudent,
   CheckinTransaction,
   CheckinSummary,
+  getUnits,
+  Unit,
 } from "@/lib/api";
 
 const PLATFORMS = [
@@ -58,6 +60,7 @@ export default function CheckinsContent() {
   const [students, setStudents] = useState<CheckinStudent[]>([]);
   const [summary, setSummary] = useState<CheckinSummary | null>(null);
   const [transactions, setTransactions] = useState<CheckinTransaction[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterUnit, setFilterUnit] = useState<string>("all");
   const [filterPlatform, setFilterPlatform] = useState<string>("all");
@@ -75,14 +78,16 @@ export default function CheckinsContent() {
 
   const fetchData = async () => {
     try {
-      const [studentsData, summaryData, transactionsData] = await Promise.all([
+      const [studentsData, summaryData, transactionsData, unitsData] = await Promise.all([
         getCheckinStudents(),
         getCheckinSummary(),
         getCheckinTransactions(),
+        getUnits(),
       ]);
       setStudents(Array.isArray(studentsData) ? studentsData : []);
       setSummary(summaryData);
       setTransactions(Array.isArray(transactionsData) ? transactionsData : []);
+      setUnits(unitsData);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -263,8 +268,11 @@ export default function CheckinsContent() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas Unidades</SelectItem>
-              <SelectItem value="recreio">Recreio</SelectItem>
-              <SelectItem value="bangu">Bangu</SelectItem>
+              {units.map((unit) => (
+                <SelectItem key={unit.id} value={unit.slug}>
+                  {unit.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Select value={filterPlatform} onValueChange={setFilterPlatform}>
@@ -543,7 +551,7 @@ function StudentsList({
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Unidade:</span>
-                <Badge variant="outline">{student.unit === "recreio" ? "Recreio" : "Bangu"}</Badge>
+                <Badge variant="outline" className="capitalize">{student.unit}</Badge>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Plataforma:</span>

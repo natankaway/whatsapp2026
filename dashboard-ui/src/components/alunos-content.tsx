@@ -347,14 +347,12 @@ export default function AlunosContent() {
             </CardHeader>
             <CardContent>
               <div className="flex gap-4">
-                <div>
-                  <div className="text-sm font-bold">{summary?.byUnit?.recreio || 0}</div>
-                  <p className="text-xs text-muted-foreground">Recreio</p>
-                </div>
-                <div>
-                  <div className="text-sm font-bold">{summary?.byUnit?.bangu || 0}</div>
-                  <p className="text-xs text-muted-foreground">Bangu</p>
-                </div>
+                {Object.entries(summary?.byUnit || {}).map(([unitSlug, count]) => (
+                  <div key={unitSlug}>
+                    <div className="text-sm font-bold">{count}</div>
+                    <p className="text-xs text-muted-foreground capitalize">{unitSlug}</p>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
