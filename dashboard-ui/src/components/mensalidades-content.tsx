@@ -37,6 +37,7 @@ import {
   History,
   FileText,
   Play,
+  Trash2,
 } from "lucide-react";
 import {
   getStudentsWithStatus,

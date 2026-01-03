@@ -3218,6 +3218,226 @@ Chave pix: ramoslks7@gmail.com (Lukas Ramos)`;
     }
   });
 
+  // ===========================================================================
+  // USERS (Gestão de Usuários - Admin Only)
+  // ===========================================================================
+
+  router.get('/users', (req: Request, res: Response) => {
+    try {
+      // Verificar se é admin
+      const currentUser = (req as Request & { user?: { role: string } }).user;
+      if (!currentUser || currentUser.role !== 'admin') {
+        res.status(403).json({ error: 'Acesso negado. Apenas administradores.' });
+        return;
+      }
+
+      const users = sqliteService.getUsers();
+      // Remove senha do retorno
+      const safeUsers = users.map(({ passwordHash, ...user }) => user);
+      res.json({
+        total: safeUsers.length,
+        users: safeUsers,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao listar usuários', error);
+      res.status(500).json({ error: 'Erro ao listar usuários' });
+    }
+  });
+
+  router.get('/users/:id', (req: Request, res: Response) => {
+    try {
+      // Verificar se é admin
+      const currentUser = (req as Request & { user?: { role: string } }).user;
+      if (!currentUser || currentUser.role !== 'admin') {
+        res.status(403).json({ error: 'Acesso negado. Apenas administradores.' });
+        return;
+      }
+
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const user = sqliteService.getUserById(id);
+      if (!user) {
+        res.status(404).json({ error: 'Usuário não encontrado' });
+        return;
+      }
+
+      // Remove senha do retorno
+      const { passwordHash, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao buscar usuário', error);
+      res.status(500).json({ error: 'Erro ao buscar usuário' });
+    }
+  });
+
+  router.post('/users', (req: Request, res: Response) => {
+    try {
+      // Verificar se é admin
+      const currentUser = (req as Request & { user?: { role: string } }).user;
+      if (!currentUser || currentUser.role !== 'admin') {
+        res.status(403).json({ error: 'Acesso negado. Apenas administradores.' });
+        return;
+      }
+
+      const { username, password, name, email, role, units } = req.body;
+
+      if (!username || !password || !name || !role) {
+        res.status(400).json({ error: 'Campos obrigatórios: username, password, name, role' });
+        return;
+      }
+
+      if (!['admin', 'gestor'].includes(role)) {
+        res.status(400).json({ error: 'Role deve ser "admin" ou "gestor"' });
+        return;
+      }
+
+      // Verificar se username já existe
+      const existingUser = sqliteService.getUserByUsername(username);
+      if (existingUser) {
+        res.status(400).json({ error: 'Nome de usuário já existe' });
+        return;
+      }
+
+      const user = sqliteService.createUser({
+        username,
+        password,
+        name,
+        email,
+        role,
+        units: units || [],
+      });
+
+      if (!user) {
+        res.status(500).json({ error: 'Erro ao criar usuário' });
+        return;
+      }
+
+      logger.info(`[Dashboard] Usuário "${username}" criado por admin`);
+
+      // Remove senha do retorno
+      const { passwordHash, ...safeUser } = user;
+      res.status(201).json(safeUser);
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao criar usuário', error);
+      res.status(500).json({ error: 'Erro ao criar usuário' });
+    }
+  });
+
+  router.put('/users/:id', (req: Request, res: Response) => {
+    try {
+      // Verificar se é admin
+      const currentUser = (req as Request & { user?: { role: string } }).user;
+      if (!currentUser || currentUser.role !== 'admin') {
+        res.status(403).json({ error: 'Acesso negado. Apenas administradores.' });
+        return;
+      }
+
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      const { username, password, name, email, role, units, status } = req.body;
+
+      // Se mudar username, verificar se já existe
+      if (username) {
+        const existingUser = sqliteService.getUserByUsername(username);
+        if (existingUser && existingUser.id !== id) {
+          res.status(400).json({ error: 'Nome de usuário já existe' });
+          return;
+        }
+      }
+
+      const updated = sqliteService.updateUser(id, {
+        username,
+        password,
+        name,
+        email,
+        role,
+        units,
+        status,
+      });
+
+      if (updated) {
+        logger.info(`[Dashboard] Usuário #${id} atualizado`);
+        const user = sqliteService.getUserById(id);
+        if (user) {
+          const { passwordHash, ...safeUser } = user;
+          res.json(safeUser);
+        } else {
+          res.json({ success: true });
+        }
+      } else {
+        res.status(404).json({ error: 'Usuário não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao atualizar usuário', error);
+      res.status(500).json({ error: 'Erro ao atualizar usuário' });
+    }
+  });
+
+  router.delete('/users/:id', (req: Request, res: Response) => {
+    try {
+      // Verificar se é admin
+      const currentUser = (req as Request & { user?: { role: string; id?: number } }).user;
+      if (!currentUser || currentUser.role !== 'admin') {
+        res.status(403).json({ error: 'Acesso negado. Apenas administradores.' });
+        return;
+      }
+
+      const id = parseInt(req.params.id ?? '0', 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+      }
+
+      // Não permitir excluir a si mesmo
+      if (currentUser.id === id) {
+        res.status(400).json({ error: 'Não é possível excluir o próprio usuário' });
+        return;
+      }
+
+      const deleted = sqliteService.deleteUser(id);
+
+      if (deleted) {
+        logger.info(`[Dashboard] Usuário #${id} excluído`);
+        res.json({ success: true, message: 'Usuário excluído' });
+      } else {
+        res.status(404).json({ error: 'Usuário não encontrado' });
+      }
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao excluir usuário', error);
+      res.status(500).json({ error: 'Erro ao excluir usuário' });
+    }
+  });
+
+  // Endpoint para obter dados do usuário logado
+  router.get('/auth/me', (req: Request, res: Response) => {
+    try {
+      const currentUser = (req as Request & { user?: { id: number; username: string; name: string; role: string; units: string[] } }).user;
+      if (!currentUser) {
+        res.status(401).json({ error: 'Não autenticado' });
+        return;
+      }
+
+      res.json({
+        id: currentUser.id,
+        username: currentUser.username,
+        name: currentUser.name,
+        role: currentUser.role,
+        units: currentUser.units,
+      });
+    } catch (error) {
+      logger.error('[Dashboard] Erro ao obter usuário atual', error);
+      res.status(500).json({ error: 'Erro ao obter usuário atual' });
+    }
+  });
+
   return router;
 }
 

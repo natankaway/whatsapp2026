@@ -1015,3 +1015,89 @@ export const deleteUnifiedStudent = (id: number) =>
 
 export const updateUnifiedStudentBalance = (id: number, amount: number) =>
   fetchApi<UnifiedStudent>(`/unified-students/${id}/balance`, { method: 'POST', body: JSON.stringify({ amount }) });
+
+// ============= User Types =============
+
+export interface User {
+  id: number;
+  username: string;
+  name: string;
+  email?: string;
+  role: 'admin' | 'gestor';
+  units: string[]; // slugs das unidades que o gestor pode acessar
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  name: string;
+  role: 'admin' | 'gestor';
+  units: string[];
+}
+
+// ============= User API Functions =============
+
+export const getCurrentUser = () =>
+  fetchApi<AuthUser>('/auth/me');
+
+export const getUsers = async (): Promise<User[]> => {
+  const response = await fetchApi<{ users: User[] } | User[]>('/users');
+  if (Array.isArray(response)) return response;
+  if (response && typeof response === 'object' && 'users' in response) {
+    return response.users || [];
+  }
+  return [];
+};
+
+export const getUserById = (id: number) =>
+  fetchApi<User>(`/users/${id}`);
+
+export const createUser = (data: { username: string; password: string; name: string; email?: string; role: 'admin' | 'gestor'; units?: string[] }) =>
+  fetchApi<User>('/users', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateUser = (id: number, data: { username?: string; password?: string; name?: string; email?: string; role?: 'admin' | 'gestor'; units?: string[]; status?: 'active' | 'inactive' }) =>
+  fetchApi<User>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+
+export const deleteUser = (id: number) =>
+  fetchApi<{ success: boolean; message: string }>(`/users/${id}`, { method: 'DELETE' });
+
+// User role labels
+export const USER_ROLES = [
+  { value: 'admin', label: 'Administrador' },
+  { value: 'gestor', label: 'Gestor' },
+] as const;
+
+// Store current user in memory for quick access
+let cachedUser: AuthUser | null = null;
+
+export const getCachedUser = (): AuthUser | null => cachedUser;
+
+export const setCachedUser = (user: AuthUser | null): void => {
+  cachedUser = user;
+};
+
+export const fetchAndCacheCurrentUser = async (): Promise<AuthUser | null> => {
+  try {
+    const user = await getCurrentUser();
+    cachedUser = user;
+    return user;
+  } catch {
+    cachedUser = null;
+    return null;
+  }
+};
+
+// Check if user is admin
+export const isAdmin = (): boolean => {
+  return cachedUser?.role === 'admin';
+};
+
+// Check if user can access a specific unit
+export const canAccessUnit = (unitSlug: string): boolean => {
+  if (!cachedUser) return false;
+  if (cachedUser.role === 'admin') return true;
+  return cachedUser.units.includes(unitSlug);
+};

@@ -455,6 +455,32 @@ export interface NotificationRecord {
   createdAt: string;
 }
 
+export interface UserRecord {
+  id?: number;
+  username: string;
+  passwordHash: string;
+  name: string;
+  email?: string;
+  role: 'admin' | 'gestor';
+  units: string[]; // array de slugs das unidades que o gestor pode acessar
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UserRecordRaw {
+  id: number;
+  username: string;
+  password_hash: string;
+  name: string;
+  email: string | null;
+  role: string;
+  units: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 class SQLiteService {
   private db: Database.Database | null = null;
   private readonly dbPath: string;
@@ -1066,6 +1092,30 @@ class SQLiteService {
           db.exec(`CREATE INDEX IF NOT EXISTS idx_unified_students_payment_type ON unified_students(payment_type)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_unified_students_status ON unified_students(status)`);
           db.exec(`CREATE INDEX IF NOT EXISTS idx_unified_students_phone ON unified_students(phone)`);
+        },
+      },
+      {
+        name: '017_create_users_table',
+        up: (db) => {
+          // Tabela de usuários do dashboard
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS users (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              username TEXT NOT NULL UNIQUE,
+              password_hash TEXT NOT NULL,
+              name TEXT NOT NULL,
+              email TEXT,
+              role TEXT NOT NULL CHECK(role IN ('admin', 'gestor')),
+              units TEXT NOT NULL DEFAULT '[]',
+              status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+          `);
+
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)`);
         },
       },
     ];
@@ -4141,6 +4191,235 @@ class SQLiteService {
       notes: row.notes ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+    };
+  }
+
+  // ===========================================================================
+  // OPERAÇÕES DE USUÁRIOS
+  // ===========================================================================
+
+  /**
+   * Cria um hash simples para senha (em produção, usar bcrypt)
+   * Para simplicidade, usamos SHA-256 com salt fixo
+   */
+  private hashPassword(password: string): string {
+    const crypto = require('crypto');
+    const salt = 'ct-lk-futevolei-salt-2024';
+    return crypto.createHash('sha256').update(password + salt).digest('hex');
+  }
+
+  /**
+   * Verifica se a senha corresponde ao hash
+   */
+  verifyPassword(password: string, hash: string): boolean {
+    return this.hashPassword(password) === hash;
+  }
+
+  /**
+   * Retorna todos os usuários
+   */
+  getUsers(): UserRecord[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, username, password_hash, name, email, role, units, status, created_at, updated_at
+      FROM users
+      ORDER BY created_at DESC
+    `);
+
+    const rows = stmt.all() as UserRecordRaw[];
+    return rows.map(row => this.parseUserRow(row));
+  }
+
+  /**
+   * Retorna um usuário por ID
+   */
+  getUserById(id: number): UserRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, username, password_hash, name, email, role, units, status, created_at, updated_at
+      FROM users
+      WHERE id = ?
+    `);
+
+    const row = stmt.get(id) as UserRecordRaw | undefined;
+    return row ? this.parseUserRow(row) : null;
+  }
+
+  /**
+   * Retorna um usuário por username
+   */
+  getUserByUsername(username: string): UserRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare(`
+      SELECT id, username, password_hash, name, email, role, units, status, created_at, updated_at
+      FROM users
+      WHERE username = ?
+    `);
+
+    const row = stmt.get(username) as UserRecordRaw | undefined;
+    return row ? this.parseUserRow(row) : null;
+  }
+
+  /**
+   * Cria um novo usuário
+   */
+  createUser(user: {
+    username: string;
+    password: string;
+    name: string;
+    email?: string;
+    role: 'admin' | 'gestor';
+    units?: string[];
+  }): UserRecord | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const passwordHash = this.hashPassword(user.password);
+      const unitsJson = JSON.stringify(user.units || []);
+
+      const stmt = this.db.prepare(`
+        INSERT INTO users (username, password_hash, name, email, role, units, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+      `);
+
+      const result = stmt.run(
+        user.username,
+        passwordHash,
+        user.name,
+        user.email ?? null,
+        user.role,
+        unitsJson,
+        now,
+        now
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        username: user.username,
+        passwordHash: passwordHash,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        units: user.units || [],
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      };
+    } catch (error) {
+      logger.error('[SQLite] Erro ao criar usuário', error);
+      return null;
+    }
+  }
+
+  /**
+   * Atualiza um usuário
+   */
+  updateUser(id: number, user: {
+    username?: string;
+    password?: string;
+    name?: string;
+    email?: string;
+    role?: 'admin' | 'gestor';
+    units?: string[];
+    status?: 'active' | 'inactive';
+  }): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if (user.username !== undefined) { updates.push('username = ?'); values.push(user.username); }
+      if (user.password !== undefined) { updates.push('password_hash = ?'); values.push(this.hashPassword(user.password)); }
+      if (user.name !== undefined) { updates.push('name = ?'); values.push(user.name); }
+      if (user.email !== undefined) { updates.push('email = ?'); values.push(user.email); }
+      if (user.role !== undefined) { updates.push('role = ?'); values.push(user.role); }
+      if (user.units !== undefined) { updates.push('units = ?'); values.push(JSON.stringify(user.units)); }
+      if (user.status !== undefined) { updates.push('status = ?'); values.push(user.status); }
+
+      if (updates.length === 0) return false;
+
+      updates.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      const stmt = this.db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`);
+      const result = stmt.run(...values);
+
+      return result.changes > 0;
+    } catch (error) {
+      logger.error(`[SQLite] Erro ao atualizar usuário #${id}`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Exclui um usuário
+   */
+  deleteUser(id: number): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('DELETE FROM users WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  /**
+   * Valida credenciais de usuário
+   */
+  validateUserCredentials(username: string, password: string): UserRecord | null {
+    const user = this.getUserByUsername(username);
+    if (!user) return null;
+    if (user.status !== 'active') return null;
+    if (!this.verifyPassword(password, user.passwordHash)) return null;
+    return user;
+  }
+
+  /**
+   * Verifica se existe algum usuário admin
+   */
+  hasAdminUser(): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ?');
+    const result = stmt.get('admin') as { count: number };
+    return result.count > 0;
+  }
+
+  /**
+   * Cria usuário admin padrão se não existir nenhum
+   */
+  ensureDefaultAdminUser(): void {
+    if (!this.hasAdminUser()) {
+      const adminUser = this.createUser({
+        username: CONFIG.dashboard.username,
+        password: CONFIG.dashboard.password,
+        name: 'Administrador',
+        role: 'admin',
+        units: [],
+      });
+      if (adminUser) {
+        logger.info('[SQLite] Usuário admin padrão criado');
+      }
+    }
+  }
+
+  private parseUserRow(row: UserRecordRaw): UserRecord {
+    return {
+      id: row.id,
+      username: row.username,
+      passwordHash: row.password_hash,
+      name: row.name,
+      email: row.email ?? undefined,
+      role: row.role as 'admin' | 'gestor',
+      units: JSON.parse(row.units || '[]'),
+      status: row.status as 'active' | 'inactive',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 }

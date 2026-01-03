@@ -2,6 +2,22 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import CONFIG from '../config/index.js';
 import logger from '../utils/logger.js';
 import { createDashboardRoutes } from './routes.js';
+import { sqliteService } from '../database/index.js';
+
+// Extend Express Request to include user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        id: number;
+        username: string;
+        name: string;
+        role: 'admin' | 'gestor';
+        units: string[];
+      };
+    }
+  }
+}
 
 // =============================================================================
 // DASHBOARD WEB SERVER
@@ -88,10 +104,38 @@ class DashboardServer {
       const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
       const [username, password] = credentials.split(':');
 
+      if (!username || !password) {
+        res.status(401).json({ error: 'Credenciais inválidas' });
+        return;
+      }
+
+      // Primeiro tenta validar no banco de dados
+      const dbUser = sqliteService.validateUserCredentials(username, password);
+      if (dbUser) {
+        // Adiciona dados do usuário à requisição
+        req.user = {
+          id: dbUser.id!,
+          username: dbUser.username,
+          name: dbUser.name,
+          role: dbUser.role,
+          units: dbUser.units,
+        };
+        return next();
+      }
+
+      // Fallback para config (mantém compatibilidade até migrar)
       if (
         username === CONFIG.dashboard.username &&
         password === CONFIG.dashboard.password
       ) {
+        // Usuário do config sempre é admin
+        req.user = {
+          id: 0,
+          username: CONFIG.dashboard.username,
+          name: 'Administrador',
+          role: 'admin',
+          units: [],
+        };
         return next();
       }
     }

@@ -34,6 +34,7 @@ import {
   TrendingDown,
   ArrowUpCircle,
   ArrowDownCircle,
+  Trash2,
 } from "lucide-react";
 import {
   getCheckinStudents,

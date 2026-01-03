@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -20,18 +20,27 @@ import {
   Wallet,
   LineChart,
   Users,
+  UserCog,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NotificationBell } from "@/components/notification-bell";
-import { isAuthenticated, getStatus, logout, BotStatus } from "@/lib/api";
+import { isAuthenticated, getStatus, logout, BotStatus, fetchAndCacheCurrentUser, getCachedUser, setCachedUser, AuthUser } from "@/lib/api";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
   title?: string;
 }
 
-const menuItems = [
+interface MenuItem {
+  title: string;
+  url: string;
+  icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+}
+
+const menuItems: MenuItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Alunos", url: "/alunos", icon: Users },
   { title: "Agendamentos", url: "/agendamentos", icon: Calendar },
@@ -40,6 +49,7 @@ const menuItems = [
   { title: "Check-ins", url: "/checkins", icon: CheckSquare },
   { title: "Financeiro", url: "/financeiro", icon: Wallet },
   { title: "Relatorios", url: "/relatorios", icon: LineChart },
+  { title: "Usuarios", url: "/usuarios", icon: UserCog, adminOnly: true },
   { title: "Configuracoes", url: "/configuracoes", icon: Settings },
 ];
 
@@ -50,6 +60,14 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
   const [status, setStatus] = useState<BotStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
+  // Filter menu items based on user role
+  const filteredMenuItems = useMemo(() => {
+    if (!currentUser) return menuItems.filter(item => !item.adminOnly);
+    if (currentUser.role === 'admin') return menuItems;
+    return menuItems.filter(item => !item.adminOnly);
+  }, [currentUser]);
 
   // Handle hydration
   useEffect(() => {
@@ -64,24 +82,40 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
       return;
     }
 
-    const fetchStatus = async () => {
+    const fetchData = async () => {
       try {
-        const data = await getStatus();
-        setStatus(data);
+        // Fetch user and status in parallel
+        const [userData, statusData] = await Promise.all([
+          fetchAndCacheCurrentUser(),
+          getStatus(),
+        ]);
+        setCurrentUser(userData);
+        setStatus(statusData);
       } catch (error) {
-        console.error("Error fetching status:", error);
+        console.error("Error fetching data:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 10000);
+    fetchData();
+
+    // Only poll status, not user
+    const interval = setInterval(async () => {
+      try {
+        const data = await getStatus();
+        setStatus(data);
+      } catch (error) {
+        console.error("Error fetching status:", error);
+      }
+    }, 10000);
+
     return () => clearInterval(interval);
   }, [router, mounted]);
 
   const handleLogout = () => {
     logout();
+    setCachedUser(null);
     router.push("/login");
   };
 
@@ -113,7 +147,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
         {/* Navigation */}
         <nav className="flex-1 px-4 py-4 space-y-1">
-          {menuItems.map((item) => {
+          {filteredMenuItems.map((item) => {
             const isActive = pathname === item.url;
             return (
               <Link
@@ -127,6 +161,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               >
                 <item.icon className="h-5 w-5" />
                 <span>{item.title}</span>
+                {item.adminOnly && (
+                  <Shield className="h-3 w-3 ml-auto text-yellow-500" />
+                )}
               </Link>
             );
           })}
@@ -134,6 +171,22 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
         {/* Footer */}
         <div className="p-4 border-t border-border">
+          {/* User info */}
+          {currentUser && (
+            <div className="mb-3 p-2 rounded-lg bg-muted/50">
+              <p className="text-sm font-medium">{currentUser.name}</p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                {currentUser.role === 'admin' ? (
+                  <>
+                    <Shield className="h-3 w-3" />
+                    Administrador
+                  </>
+                ) : (
+                  'Gestor'
+                )}
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               {status?.whatsapp.connected ? (
@@ -190,7 +243,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
         {/* Navigation */}
         <nav className="flex-1 px-4 py-4 space-y-1">
-          {menuItems.map((item) => {
+          {filteredMenuItems.map((item) => {
             const isActive = pathname === item.url;
             return (
               <Link
@@ -205,6 +258,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               >
                 <item.icon className="h-5 w-5" />
                 <span>{item.title}</span>
+                {item.adminOnly && (
+                  <Shield className="h-3 w-3 ml-auto text-yellow-500" />
+                )}
               </Link>
             );
           })}
@@ -212,6 +268,22 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
         {/* Footer */}
         <div className="p-4 border-t border-border">
+          {/* User info */}
+          {currentUser && (
+            <div className="mb-3 p-2 rounded-lg bg-muted/50">
+              <p className="text-sm font-medium">{currentUser.name}</p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                {currentUser.role === 'admin' ? (
+                  <>
+                    <Shield className="h-3 w-3" />
+                    Administrador
+                  </>
+                ) : (
+                  'Gestor'
+                )}
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               {status?.whatsapp.connected ? (

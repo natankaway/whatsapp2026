@@ -65,6 +65,7 @@ interface CategoryData {
   name: string;
   value: number;
   color: string;
+  [key: string]: string | number;
 }
 
 interface UnitData {
@@ -362,7 +363,7 @@ export default function RelatoriosPage() {
                       border: "1px solid #374151",
                       borderRadius: "8px",
                     }}
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value) => formatCurrency(value as number)}
                   />
                   <Legend />
                   <Bar dataKey="income" name="Receita" fill="#22c55e" radius={[4, 4, 0, 0]} />
@@ -402,7 +403,7 @@ export default function RelatoriosPage() {
                       border: "1px solid #374151",
                       borderRadius: "8px",
                     }}
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value) => formatCurrency(value as number)}
                   />
                   <Area
                     type="monotone"
@@ -451,7 +452,7 @@ export default function RelatoriosPage() {
                         border: "1px solid #374151",
                         borderRadius: "8px",
                       }}
-                      formatter={(value: number) => formatCurrency(value)}
+                      formatter={(value) => formatCurrency(value as number)}
                     />
                     <Legend
                       verticalAlign="bottom"
@@ -526,7 +527,7 @@ export default function RelatoriosPage() {
                       border: "1px solid #374151",
                       borderRadius: "8px",
                     }}
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value) => formatCurrency(value as number)}
                   />
                   <Legend />
                 </PieChart>
